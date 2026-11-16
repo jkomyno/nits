@@ -187,6 +187,7 @@ def cmd_eval(args) -> int:
         "cases": len(cases),
         "per_rule": [s.to_dict() for s in scores.values()],
         "inversions": [c.id for c in inversions],
+        "missed": [s.rule for s in scores.values() if s.fp or s.fn],
         "task_metric": task_metric(),
     }
     if args.json:
@@ -218,7 +219,10 @@ def cmd_eval(args) -> int:
         print("  produced the worst real outcomes in this literature; do not tune the")
         print("  gate against precision alone. Add evals/task_metric.json with")
         print('  {"measured": true, ...} once a human accept-rate study exists.')
-    return 1 if inversions else 0
+    misses = [s.rule for s in scores.values() if s.fp or s.fn]
+    if misses:
+        print(_color(True, C_RED, f"\nLABELED CASES MISSED: {', '.join(misses)}"))
+    return 1 if inversions or misses else 0
 
 
 def cmd_invariance(args) -> int:
