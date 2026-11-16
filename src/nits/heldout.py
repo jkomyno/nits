@@ -78,8 +78,8 @@ HELDOUT_BY_LANG: dict[str, tuple[int, int]] = {
     # `except` block, which the rule did not see. Fresh: 8/10. Misses: 2
     # fallback assignments read as aliases (since fixed).
     "swallowed_error:python": (12, 17),
-    # 2026-11-16: 18/19. Miss: `return null // Invalid URL encoding`.
-    "error_to_empty_success:ts": (18, 19),
+    # 2026-11-16: 19/20. Miss: `return null // Invalid URL encoding`.
+    "error_to_empty_success:ts": (19, 20),
     # Fresh: 8/8.
     "error_to_empty_success:python": (8, 8),
     # Fresh: 0/1. Miss: `Err(TryRecvError::Empty) => None`, where "empty" is
