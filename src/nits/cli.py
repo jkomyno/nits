@@ -29,7 +29,7 @@ SKIP_DIRS = {
     ".git", "node_modules", "dist", "build", "out", "target", "vendor",
     ".venv", "venv", "env", ".nox", ".tox", "site-packages", "__pypackages__",
     ".eggs", ".next", ".turbo", "coverage", ".mypy_cache", ".pytest_cache",
-    ".ruff_cache", ".hypothesis", "fixtures", "testdata", "third_party", "3rdparty", "external",
+    ".ruff_cache", ".hypothesis", "fixtures", "__fixtures__", "testdata", "third_party", "3rdparty", "external",
     ".claude/worktrees", "worktrees",
 }
 
