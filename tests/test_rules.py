@@ -99,11 +99,14 @@ def test_short_names_are_not_penalised_either():
     assert "junk_identifier" not in rules_fired("def f(x):\n    return x\n", "python")
 
 
-def test_golfed_javascript_is_the_junk_zero_width():
-    """We under-report golf on purpose; this records the gap, not a passing grade."""
+def test_golfed_javascript_is_a_known_gap():
+    """We under-report golf on purpose; this records the gap, not a passing grade.
+
+    If this starts failing, a rule began matching on name length. Update the
+    README's limits before changing the assertion.
+    """
     src = "const xx = d[47];\nconst yy = d[112] + xx;\n"
-    fired = rules_fired(src, "ts")
-    assert "poor_naming" not in fired
+    assert rules_fired(src, "ts") == []
 
 
 # --------------------------------------------------------------------------- #
