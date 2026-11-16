@@ -1030,6 +1030,7 @@ _CODE_HINT = re.compile(
     r"|\bif\s*\(|\bfor\s*\(|\bimport\b|\bfrom\b|\bprint\s*\(|\bawait\b|\bself\.",
 )
 _PROSE_TAIL = re.compile(r"[.!?]\s*$")
+_DOC_COMMENT = re.compile(r"\s*(?:///|//!|/\*\*|/\*!)")
 
 _COMMENT_STMT_TYPES = {
     "js": {
@@ -1064,6 +1065,8 @@ def rule_commented_out_code(ctx: Ctx) -> Iterator[Finding]:
         if not _is_standalone_comment(node, ctx):
             continue  # a trailing suppression on live code is not dead code
         raw = ctx.text(node)
+        if _DOC_COMMENT.match(raw):
+            continue  # doc examples and `/// <reference>` directives are not dead code
         body = _COMMENT_MARK.sub("", raw).strip().rstrip("*/").strip()
         if len(body) < 8 or _PROSE_TAIL.search(body) or not _CODE_HINT.search(body):
             continue

@@ -776,6 +776,22 @@
    "source": "function syncAll(items) {\n  if (items) {\n    for (const item of items) {\n      try {\n        sync(item)\n      } catch {\n        if (item.retry) {\n          queue(item)\n        }\n      }\n    }\n  }\n}\n",
    "expect": "clean",
    "note": "catch shares the level of its try"
+  },
+  {
+   "id": "co-rs-doc-example",
+   "rule": "commented_out_code",
+   "lang": "rust",
+   "source": "/// Creates an offset at a position.\n///\n/// let offset = Offset::at(\"abc123\");\npub fn at(s: &str) -> Offset {\n    Offset::At(s.into())\n}\n",
+   "expect": "clean",
+   "note": "doc example, not dead code"
+  },
+  {
+   "id": "co-ts-triple-slash",
+   "rule": "commented_out_code",
+   "lang": "ts",
+   "source": "/// <reference types=\"vite/client\" />\nimport { createRoot } from \"react-dom/client\"\n",
+   "expect": "clean",
+   "note": "compiler directive"
   }
  ]
 }
