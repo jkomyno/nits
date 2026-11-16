@@ -49,6 +49,11 @@ HELDOUT: dict[str, tuple[int, int]] = {
 #   an external TypeScript library
 #   the "Rust workspace (external)" of the README's density table
 #   mvanhorn/last30days-skill@ae8c32327f86f516894a2d94edc6127314465708
+#
+# Samples marked "prisma" were drawn with seed 7 using the rules as of nits
+# ede898f, from:
+#   prisma/prisma@17385f2d86eefa3783e86d94534168a224806c0a
+#   prisma/prisma-engines@d1b3f377ca835d73fd50954a5e22128b9ebdd6b8
 
 #: "rule:lang" -> (true positives, findings read by hand)
 HELDOUT_BY_LANG: dict[str, tuple[int, int]] = {
@@ -58,61 +63,84 @@ HELDOUT_BY_LANG: dict[str, tuple[int, int]] = {
     # 2026-11-16: 18/35. Misses: 7 byte-layout labels, 3 section headers drawn
     # with box characters, 6 comments that add a reason, unit or date, 1 test
     # label. Fresh: 9/10. Miss: `// biSizeImage`, a field label.
-    "narrator_comment:ts": (36, 59),
+    # Prisma: 5/10. Misses: test-step IDs, a note on the upstream code, a path
+    # label, an explanation of an assertion, a function description.
+    "narrator_comment:ts": (41, 69),
     # Rust: 10/11 at seed 12 on a public Rust workspace. 2026-11-16: 1/1.
-    "narrator_comment:rust": (11, 12),
+    # Prisma: 7/10. Misses: a summary of a branch, two test descriptions.
+    "narrator_comment:rust": (18, 22),
     # 2026-11-16: 6/6.
     "narrator_comment:python": (6, 6),
     # TypeScript: best-effort `.catch(() => undefined)`, 2/2. 2026-11-16: 8/14.
     # Misses: 3 discards explained by a comment above the statement, 2 queue
     # tails whose source promise is returned to the caller, 1 null result that
     # the caller checks. Fresh: 10/10, mostly test teardown.
-    "swallowed_error:ts": (20, 26),
+    # Prisma: 10/10.
+    "swallowed_error:ts": (30, 36),
     # Rust: `let _ = tracing_subscriber::try_init()` discards a Result by design,
     # which this spelling cannot distinguish from a dropped error, 2/4.
     # 2026-11-16: 3/5. Misses: 2 `let _ = x?.search(..)` where `?` already
     # propagated the error and the discarded value is not a Result. Fresh: 5/10.
     # Misses: 2 `let _ = x.unwrap()` (since fixed), `try_init()` and
     # `install_default()` discarded by design, a `let _: T = ...` type check.
-    "swallowed_error:rust": (10, 19),
+    # Prisma: 4/10. Misses: 2 discards explained by a comment above, 2
+    # `let _ = std::mem::replace(..)`, `let _ = stack.pop()`, a timer future.
+    "swallowed_error:rust": (14, 29),
     # 2026-11-16: 4/7. Misses: 3 handlers explained by a comment inside the
     # `except` block, which the rule did not see. Fresh: 8/10. Misses: 2
     # fallback assignments read as aliases (since fixed).
     "swallowed_error:python": (12, 17),
     # 2026-11-16: 19/20. Miss: `return null // Invalid URL encoding`.
-    "error_to_empty_success:ts": (19, 20),
+    # Prisma: 10/10.
+    "error_to_empty_success:ts": (29, 30),
     # Fresh: 8/8.
     "error_to_empty_success:python": (8, 8),
     # Fresh: 0/1. Miss: `Err(TryRecvError::Empty) => None`, where "empty" is
     # not a failure. One finding is all the held-out Rust code produced.
-    "error_to_empty_success:rust": (0, 1),
+    # Prisma: 0/7. Misses: `ErrorType::Unknown(_)` read as `Err`, 2
+    # `Err(AlreadyDealtWith)` after the error was reported, 3 parsers whose
+    # `Option` return makes `None` the failure signal, a `binary_search` miss.
+    "error_to_empty_success:rust": (0, 8),
     # Fresh: 10/10, all `process.env.X || 'password'`-style defaults in tests.
-    "config_fallback:ts": (10, 10),
+    # Prisma: 1/1, `NODE_ENV ?? 'development'`.
+    "config_fallback:ts": (11, 11),
     # 2026-11-16: 3/3, all `TODO: Implement ...` above a stub.
-    "elision_comment:ts": (3, 3),
+    # Prisma: 0/7. Misses: "same as above" in a table of notes, "rest of the
+    # file" and "unchanged from" in explanatory prose.
+    "elision_comment:ts": (3, 10),
     # 2026-11-16: 4/9. Misses: 5 functions whose depth counted `catch` as a level
     # on top of its `try`. Fresh: 10/10, each with five or more real levels.
-    "deep_nesting:ts": (14, 19),
+    # Prisma: 10/10.
+    "deep_nesting:ts": (24, 29),
     # 2026-11-16: 4/4.
     "deep_nesting:python": (4, 4),
     # 2026-11-16: 1/1.
-    "deep_nesting:rust": (1, 1),
+    # Prisma: 10/10.
+    "deep_nesting:rust": (11, 11),
     # 2026-11-16: 8/8, numbered `res1`/`res2`/`data1` in conformance tests.
-    "junk_identifier:ts": (8, 8),
+    # Prisma: 0/9. Misses: 4 `tmp` holding a temporary directory, 3 names
+    # their value spells out (`thing = sqlDataType('testext/thing')`), 2
+    # SCREAMING_CASE constants (`EXT_OLD`, `FRAGMENT_COPY`).
+    "junk_identifier:ts": (8, 17),
     # 2026-11-16: 0/1. Miss: `bar: ProgressBar`. Fresh: 10/10, `data1`..`data3`
     # in tests.
-    "junk_identifier:rust": (10, 11),
+    # Prisma: 2/5. Misses: 2 `bar = Column::from("bar")`, `allow_deprecated`.
+    "junk_identifier:rust": (12, 16),
     # 2026-11-16: 0/4. Misses: code examples in `///` and `//!` doc comments.
     # Fresh: 2/2.
-    "commented_out_code:rust": (2, 6),
+    # Prisma: 7/9. Misses: a fenced snippet in prose, a worked example.
+    "commented_out_code:rust": (9, 15),
     # 2026-11-16: 0/1. Miss: a `/// <reference types=... />` directive. Fresh:
     # 9/10. Miss: `// dwQuality (-1 == default)`, a field label that parses as a
     # call.
-    "commented_out_code:ts": (9, 11),
+    # Prisma: 0/11. Misses: code-shaped lines inside prose comments, such as
+    # API translation notes and worked examples.
+    "commented_out_code:ts": (9, 22),
     # 2026-11-16: 1/1, a bare `# type: ignore`.
     "suppression_without_reason:python": (1, 1),
     # 2026-11-16: 1/1, a crate-wide `#![allow(clippy::...)]`.
-    "suppression_without_reason:rust": (1, 1),
+    # Prisma: 10/10, crate-wide `#![allow]` and `#![cfg_attr(.., allow(..))]`.
+    "suppression_without_reason:rust": (11, 11),
     # The 8 TypeScript findings sampled on 2026-11-16 all sat in generated
     # `routeTree.gen.ts` files, and 6 of 8 fresh ones in `__fixtures__/`. Both
     # are now skipped, so they are not counted. Fresh, outside them: 2/2.
