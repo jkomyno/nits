@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import tree_sitter_python as _py
+import tree_sitter_rust as _rs
 import tree_sitter_typescript as _ts
 from tree_sitter import Language, Node, Parser, Tree
 
@@ -26,10 +27,11 @@ EXT_TO_LANG = {
     ".mjs": "ts",
     ".cjs": "ts",
     ".jsx": "tsx",
+    ".rs": "rust",
 }
 
 #: Language families that share a rule implementation.
-FAMILY = {"python": "python", "ts": "js", "tsx": "js"}
+FAMILY = {"python": "python", "ts": "js", "tsx": "js", "rust": "rust"}
 
 
 def lang_for_path(path: str | Path) -> str | None:
@@ -44,6 +46,8 @@ def _language(lang: str) -> Language:
         return Language(_ts.language_typescript())
     if lang == "tsx":
         return Language(_ts.language_tsx())
+    if lang == "rust":
+        return Language(_rs.language())
     raise ValueError(f"unsupported language: {lang}")
 
 

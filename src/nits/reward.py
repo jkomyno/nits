@@ -35,7 +35,7 @@ def reward(
 
     findings = check_source(source, lang=lang)
     lines = max(_line_count(source), 1)
-    weighted = [f for f in findings if precision_of(f.rule) >= min_precision]
+    weighted = [f for f in findings if precision_of(f.rule, lang) >= min_precision]
     density = 100.0 * len(weighted) / lines
     hygiene = max(0.0, 1.0 - density / 5.0)  # 5 flags / 100 lines -> no bonus
 

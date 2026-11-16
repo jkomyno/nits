@@ -16,6 +16,7 @@ from pathlib import Path
 from . import check_source, check_paths
 from . import rules as rules_mod
 from .calibration import precision_of
+from .heldout import HELDOUT_BY_LANG
 from .diff import git_diff, parse_diff
 from .evaluate import (
     invariance, load_cases, score, task_metric, wildcard_failures, write_calibration,
@@ -41,12 +42,12 @@ def _color(enabled: bool, code: str, text: str) -> str:
     return f"{code}{text}{C_OFF}" if enabled else text
 
 
-def render_findings(path: str, findings: list[Finding], color: bool) -> str:
+def render_findings(path: str, findings: list[Finding], color: bool, lang: str) -> str:
     if not findings:
         return ""
     out = [_color(color, C_BOLD, path)]
     for f in findings:
-        prec = precision_of(f.rule)
+        prec = precision_of(f.rule, lang)
         tag = _color(color, C_DIM, f"p{prec:.2f}")
         loc = _color(color, C_DIM, f"{f.line:>5}:{f.col:<3}")
         out.append(f"  {loc} {tag}  {_color(color, C_YEL, f.rule):<28} {f.message}")
@@ -64,7 +65,7 @@ def _emit(reports, as_json: bool, color: bool) -> int:
         }, indent=2))
         return total
     for report in reports:
-        chunk = render_findings(report.path, report.findings, color)
+        chunk = render_findings(report.path, report.findings, color, report.lang)
         if chunk:
             print(chunk)
     if total:
@@ -124,7 +125,7 @@ def cmd_check(args) -> int:
     if args.gate is not None:
         gate_hits = [
             f for r in reports for f in r.findings
-            if precision_of(f.rule) >= args.gate
+            if precision_of(f.rule, r.lang) >= args.gate
         ]
         if gate_hits:
             print(f"\ngate: {len(gate_hits)} finding(s) at precision >= {args.gate}", file=sys.stderr)
@@ -163,7 +164,7 @@ def cmd_diff(args) -> int:
     if args.gate is not None:
         gate_hits = [
             f for r in reports for f in r.findings
-            if precision_of(f.rule) >= args.gate
+            if precision_of(f.rule, r.lang) >= args.gate
         ]
         if gate_hits:
             print(f"\ngate: {len(gate_hits)} finding(s) at precision >= {args.gate}", file=sys.stderr)
@@ -273,15 +274,25 @@ def cmd_fp(args) -> int:
         print(f"\n{_color(True, C_BOLD, 'sample for adjudication')} (seed {args.seed})")
         for path, f, lines in rng.sample(pool, min(args.sample, len(pool))):
             src = lines[f.line - 1].strip()[:110] if 0 < f.line <= len(lines) else "?"
-            print(f"  {path}:{f.line}  {f.rule}  p={precision_of(f.rule):.2f}")
+            print(f"  {path}:{f.line}  {f.rule}  p={precision_of(f.rule, lang):.2f}")
             print(f"      {src}")
     return 0
 
 
 def cmd_rules(args) -> int:
-    print(f"  {'rule':<30} {'default':>8} {'prec':>6}  summary")
+    langs = ("ts", "python", "rust")
+    header = "  " + f"{'rule':<30} {'default':>8} {'prec':>6} " + " ".join(f"{l:>6}" for l in langs)
+    print(header)
+    print("  " + f"{'':<30} {'':>8} {'pooled':>6} " + " ".join(f"{'':>6}" for _ in langs))
     for rule in RULES:
-        print(f"  {rule.id:<30} {str(rule.default):>8} {precision_of(rule.id):>6.2f}  {rule.summary}")
+        # `~` marks a column with no language-specific sample of its own: the
+        # number shown is the pooled one, which is not the same claim.
+        per = " ".join(
+            f"{precision_of(rule.id, l):>6.2f}" if f"{rule.id}:{l}" in HELDOUT_BY_LANG
+            else f"{precision_of(rule.id, l):>5.2f}~"
+            for l in langs
+        )
+        print(f"  {rule.id:<30} {str(rule.default):>8} {precision_of(rule.id):>6.2f} {per}  {rule.summary}")
     return 0
 
 

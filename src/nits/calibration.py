@@ -21,7 +21,7 @@ MEASURED: dict[str, tuple[float, int, int]] = {
 }
 
 
-def precision_of(rule: str, default: float = 0.5) -> float:
+def precision_of(rule: str, lang: str | None = None, default: float = 0.5) -> float:
     """Lower of in-sample and held-out precision.
 
     In-sample numbers come from the labeled corpus, which was written alongside
@@ -32,6 +32,6 @@ def precision_of(rule: str, default: float = 0.5) -> float:
 
     values = [v for v in (
         MEASURED.get(rule, (None,))[0],
-        heldout_precision(rule),
+        heldout_precision(rule, lang),
     ) if v is not None]
     return min(values) if values else default

@@ -113,6 +113,13 @@ _SECRETISH = re.compile(r"(KEY|TOKEN|SECRET|PASS|PWD|CRED|AUTH|SALT|SIGNATURE)",
 
 MAX_DEPTH = 5
 
+#: Rust has no `comment` node: it distinguishes line and block comments.
+_COMMENT_TYPES = frozenset({"comment", "line_comment", "block_comment"})
+
+
+def _is_comment(node: Node) -> bool:
+    return node.type in _COMMENT_TYPES
+
 _JUNK_EXACT = {
     "tmp", "temp", "tmp1", "temp1", "foo", "bar", "baz", "asdf",
     "qwerty", "dummy", "stuff", "thing", "things", "var1", "var2", "obj1", "res1",
@@ -130,9 +137,14 @@ _CONTROL_JS = {
 _CONTROL_PY = {
     "if_statement", "for_statement", "while_statement", "try_statement",
 }
+_CONTROL_RUST = {
+    "if_expression", "for_expression", "while_expression", "loop_expression",
+    "match_expression",
+}
 _FUNC_NODES = {
     "function_definition", "function_declaration", "method_definition",
     "arrow_function", "function_expression", "generator_function_declaration",
+    "function_item", "closure_expression",
 }
 
 
@@ -140,13 +152,22 @@ def _string_literal(node: Node | None) -> str | None:
     """Return the decoded value of a string literal node, else None."""
     if node is None:
         return None
-    if node.type in ("string", "template_string"):
+    if node.type in ("string", "template_string", "string_literal"):
         raw = node.text.decode("utf-8", "replace") if node.text else ""
         if node.type == "template_string" and raw.startswith("`") and "${" in raw:
             return None
         return raw.strip("'\"`")
     if node.type in ("string_fragment",):
         return (node.text or b"").decode("utf-8", "replace")
+    return None
+
+
+def _first_string_in(node: Node, ctx: Ctx) -> str | None:
+    """First string literal in a subtree, unwrapping `.into()` / closures."""
+    for cand in walk(node):
+        value = _string_literal(cand)
+        if value is not None:
+            return value
     return None
 
 
@@ -163,11 +184,54 @@ _PY_ENV_CALLS = {"os.getenv", "os.environ.get", "environ.get", "getenv"}
 _PY_ENV_OBJECTS = {"os.environ", "environ"}
 
 
+_CONTROLS = {"python": _CONTROL_PY, "js": _CONTROL_JS, "rust": _CONTROL_RUST}
+
+_RUST_ENV_CALLS = {"env::var", "env::var_os", "std::env::var", "std::env::var_os"}
+_RUST_DEFAULTS = {"unwrap_or", "unwrap_or_else", "unwrap_or_default", "unwrap_or_else_default"}
+
+
 def _env_key(node: Node, ctx: Ctx) -> str | None:
     """Return the environment-variable name read by `node`, if it reads one."""
     if ctx.family == "python":
         return _py_env_key(node, ctx)
+    if ctx.family == "rust":
+        return _rust_env_key(node, ctx)
     return _js_env_key(node, ctx)
+
+
+def _rust_env_key(node: Node, ctx: Ctx) -> str | None:
+    """`env::var("X")` inside `...unwrap_or(...)`."""
+    if node.type != "call_expression":
+        return None
+    if ctx.text(node.child_by_field_name("function")) not in _RUST_ENV_CALLS:
+        return None
+    args = node.child_by_field_name("arguments")
+    if args is None:
+        return None
+    for arg in args.named_children:
+        return _string_literal(arg)
+    return None
+
+
+def _rust_env_default(node: Node, ctx: Ctx) -> tuple[bool, str]:
+    """(found, default) for a `Result`/`Option` fallback wrapping an env read."""
+    parent = node.parent
+    if parent is None or parent.type != "field_expression":
+        return False, ""
+    field_node = parent.child_by_field_name("field")
+    field = ctx.text(field_node) if field_node is not None else ""
+    if field not in _RUST_DEFAULTS:
+        return False, ""
+    call = parent.parent
+    if call is None or call.type != "call_expression":
+        return False, ""
+    if field == "unwrap_or_default":
+        return True, ""  # the type's default, usually the empty string
+    args = call.child_by_field_name("arguments")
+    if args is None:
+        return False, ""
+    found = _first_string_in(args, ctx)
+    return (True, found) if found is not None else (False, "")
 
 
 def _py_env_key(node: Node, ctx: Ctx) -> str | None:
@@ -202,10 +266,10 @@ def _inert_statements(nodes: list[Node], ctx: Ctx) -> bool:
         return True
     for stmt in nodes:
         t = stmt.type
-        if t in ("pass_statement", "empty_statement", "comment"):
+        if t in ("pass_statement", "empty_statement") or _is_comment(stmt):
             continue
         if t == "expression_statement":
-            inner = [c for c in stmt.named_children if c.type != "comment"]
+            inner = [c for c in stmt.named_children if not _is_comment(c)]
             if not inner:
                 continue
             expr = inner[0]
@@ -243,7 +307,7 @@ def _empty_return_value(node: Node, ctx: Ctx) -> bool:
     """True if a return statement hands back an empty/null-ish success value."""
     if node.type != "return_statement":
         return False
-    named = [c for c in node.named_children if c.type != "comment"]
+    named = [c for c in node.named_children if not _is_comment(c)]
     if not named:
         return True  # bare `return` -> returns None
     val = named[0]
@@ -252,9 +316,9 @@ def _empty_return_value(node: Node, ctx: Ctx) -> bool:
     if val.type in ("none", "null", "undefined"):
         return True
     if val.type in ("object", "dictionary"):
-        return len([c for c in val.named_children if c.type in ("pair", "comment") and c.type != "comment"]) == 0
+        return len([c for c in val.named_children if c.type == "pair"]) == 0
     if val.type in ("array", "list", "tuple"):
-        return len([c for c in val.named_children if c.type != "comment"]) == 0
+        return len([c for c in val.named_children if not _is_comment(c)]) == 0
     return False
 
 
@@ -320,9 +384,14 @@ def rule_config_fallback(ctx: Ctx) -> Iterator[Finding]:
         if default is None and node.type == "call":
             args = node.child_by_field_name("arguments")
             if args:
-                named = [c for c in args.named_children if c.type != "comment"]
+                named = [c for c in args.named_children if not _is_comment(c)]
                 if len(named) >= 2:
                     default = _string_literal(named[1])
+        # c) rust: env::var("X").unwrap_or("y") / unwrap_or_default()
+        if default is None and ctx.family == "rust":
+            found, value = _rust_env_default(node, ctx)
+            if found:
+                default = value
         if default is None:
             continue
         low = default.strip().lower()
@@ -347,25 +416,98 @@ _NON_BLOCK_NOOP = {"undefined", "null", "None", "{}", "[]", "void 0", ""}
 def _block_children(body: Node) -> list[Node] | None:
     """Statements of a handler body, or None for a non-block expression body."""
     if body.type in ("statement_block", "block"):
-        return [c for c in body.named_children if c.type != "comment"]
+        return [c for c in body.named_children if not _is_comment(c)]
     return None
 
 
-def _documented(body: Node, ctx: Ctx, min_chars: int = 15) -> bool:
+def _documented(body: Node, ctx: Ctx, min_chars: int = 3) -> bool:
     """True when a handler explains itself in a comment.
 
     `catch {}` and `catch { /* keep walking to the filesystem root */ }` are not
     the same act. The second one told you why. Silence is the failure mode, and
-    a comment is the opposite of silence.
+    a comment is the opposite of silence. The marker alone does not count: an
+    empty `//` is silence with punctuation.
     """
-    return any(
-        c.type == "comment" and len(ctx.text(c).strip()) >= min_chars
-        for c in body.named_children
-    )
+    for child in body.named_children:
+        if not _is_comment(child):
+            continue
+        text = _COMMENT_MARK.sub("", ctx.text(child)).strip().rstrip("*/").strip()
+        if len(text) >= min_chars:
+            return True
+    return False
+
+
+_RUST_DEFAULT_BODIES = re.compile(
+    r"^(?:Vec::new\(\)|String::new\(\)|HashMap::new\(\)|BTreeMap::new\(\)"
+    r"|Default::default\(\)|None|vec!\[\]|String::from\(\"\"\))$"
+)
+
+
+def _block_is_empty(block: Node, ctx: Ctx) -> bool:
+    named = [c for c in block.named_children if not _is_comment(c)]
+    return not named and not _documented(block, ctx)
+
+
+def _rust_swallowed(ctx: Ctx) -> Iterator[Finding]:
+    """Rust has no exceptions, so discarding an error has four spellings."""
+    for node in ctx.nodes:
+        if node.type == "expression_statement":
+            inner = [c for c in node.named_children if not _is_comment(c)]
+            if not inner or inner[0].type != "call_expression":
+                continue
+            fn = inner[0].child_by_field_name("function")
+            if fn is None or fn.type != "field_expression":
+                continue
+            if ctx.text(fn.child_by_field_name("field")) != "ok":
+                continue
+            yield _find(
+                ctx, "swallowed_error", node,
+                "`.ok()` turns the failure into `None` and drops it — handle it or propagate",
+            )
+        elif node.type == "let_declaration":
+            pattern = node.child_by_field_name("pattern")
+            value = node.child_by_field_name("value")
+            if pattern is None or pattern.type != "_" or value is None:
+                continue
+            if value.type not in (
+                "call_expression", "macro_invocation", "await_expression", "try_expression",
+            ):
+                continue
+            yield _find(
+                ctx, "swallowed_error", node,
+                "`let _ =` drops the result — a failing `Result` becomes silence",
+            )
+        elif node.type == "match_arm":
+            pattern = node.child_by_field_name("pattern")
+            value = node.child_by_field_name("value")
+            if pattern is None or value is None or value.type != "block":
+                continue
+            # `_ => {}` ignores the remaining variants, which is what `_` is for.
+            if not ctx.text(pattern).strip().startswith("Err"):
+                continue
+            if _block_is_empty(value, ctx):
+                yield _find(
+                    ctx, "swallowed_error", pattern,
+                    "match arm does nothing — handle the case, propagate, or say why",
+                )
+        elif node.type == "if_expression":
+            condition = node.child_by_field_name("condition")
+            consequence = node.child_by_field_name("consequence")
+            if condition is None or condition.type != "let_condition":
+                continue
+            if consequence is None or not _block_is_empty(consequence, ctx):
+                continue
+            yield _find(
+                ctx, "swallowed_error", node,
+                "`if let` with an empty body ignores the case — handle it or say why",
+            )
 
 
 def rule_swallowed_error(ctx: Ctx) -> Iterator[Finding]:
     """A handler whose body has no effect on the error."""
+    if ctx.family == "rust":
+        yield from _rust_swallowed(ctx)
+        return
     for node in ctx.nodes:
         for header, body in _catch_bodies(node, ctx):
             stmts = _block_children(body)
@@ -393,8 +535,39 @@ def rule_swallowed_error(ctx: Ctx) -> Iterator[Finding]:
 # Rule: error_to_empty_success
 # --------------------------------------------------------------------------- #
 
+def _rust_empty_success(ctx: Ctx) -> Iterator[Finding]:
+    """`Err(e) => Vec::new()` makes a failure indistinguishable from an empty result."""
+    for node in ctx.nodes:
+        if node.type != "match_expression":
+            continue
+        for arm in walk(node):
+            if arm.type != "match_arm":
+                continue
+            pattern = arm.child_by_field_name("pattern")
+            value = arm.child_by_field_name("value")
+            if pattern is None or value is None:
+                continue
+            if not ctx.text(pattern).strip().startswith("Err"):
+                continue
+            body = ctx.text(value).strip()
+            if value.type == "block":
+                inner = [c for c in value.named_children if not _is_comment(c)]
+                if len(inner) != 1:
+                    continue
+                body = ctx.text(inner[0]).strip()
+            if _RUST_DEFAULT_BODIES.match(body):
+                yield _find(
+                    ctx, "error_to_empty_success", arm,
+                    f"`Err` arm returns `{body}` — the caller cannot tell failure from an empty result",
+                )
+                break
+
+
 def rule_error_to_empty_success(ctx: Ctx) -> Iterator[Finding]:
     """A handler that converts failure into an empty-looking success value."""
+    if ctx.family == "rust":
+        yield from _rust_empty_success(ctx)
+        return
     for node in ctx.nodes:
         for header, body in _catch_bodies(node, ctx):
             if _block_children(body) is None:
@@ -423,6 +596,19 @@ _SUPPRESSION_PY = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore\b|#\s*pyright:\s*ig
 _REASON_PY = re.compile(r"#\s*\S|--\s*\S")
 
 
+def _rust_suppressions(ctx: Ctx) -> Iterator[Finding]:
+    """`#![allow(...)]` applies to the whole crate or module; `#[allow(...)]` does not."""
+    for node in ctx.nodes:
+        if node.type != "inner_attribute_item":
+            continue
+        if "allow" not in ctx.text(node):
+            continue
+        yield _find(
+            ctx, "suppression_without_reason", node,
+            "crate/module-wide `#![allow]` — scope it to the item that needs it",
+        )
+
+
 def rule_suppression_without_reason(ctx: Ctx) -> Iterator[Finding]:
     """*Unscoped* lint/type suppressions.
 
@@ -432,8 +618,11 @@ def rule_suppression_without_reason(ctx: Ctx) -> Iterator[Finding]:
     the first is a policy opinion, and policy opinions at that volume are how
     linters get switched off.
     """
+    if ctx.family == "rust":
+        yield from _rust_suppressions(ctx)
+        return
     for node in ctx.nodes:
-        if node.type != "comment":
+        if not _is_comment(node):
             continue
         text = ctx.text(node)
         if ctx.family == "js":
@@ -487,7 +676,7 @@ _ELISION = re.compile(
 def rule_elision_comment(ctx: Ctx) -> Iterator[Finding]:
     """Comments that stand in for code that was never written."""
     for node in ctx.nodes:
-        if node.type != "comment":
+        if not _is_comment(node):
             continue
         text = ctx.text(node)
         body = re.sub(r"^\s*(?://+|/\*+|\*+|#+|--+)+", "", text).strip().rstrip("*/").strip()
@@ -515,6 +704,11 @@ _KEYWORD_TOKENS = {
     "try_statement": {"try"},
     "throw_statement": {"throw"},
     "raise_statement": {"raise", "throw"},
+    "return_expression": {"return"},
+    "if_expression": {"if", "check"},
+    "for_expression": {"for", "loop", "iterate", "each"},
+    "while_expression": {"while", "loop"},
+    "match_expression": {"match"},
 }
 _ASSIGN_TOKENS = {"set", "assign", "store", "save", "put", "update"}
 
@@ -533,6 +727,13 @@ def _words(text: str) -> set[str]:
             out.add(w[:-1] if w.endswith("s") and len(w) > 4 else w)
     return out
 
+
+#: Naming a type is a label, not a restatement of an action.
+_TYPE_DECLS = frozenset({
+    "type_alias_declaration", "interface_declaration", "enum_declaration",
+    "type_item", "struct_item", "trait_item", "enum_item", "union_item",
+    "type_alias",
+})
 
 _ASSERTION_COMMENT = re.compile(
     r"^\W*(?:should|expect|expects|expected|assert|asserts|verify|verifies|ensures?|must|never|always|note|warning|caveat)\b",
@@ -579,8 +780,14 @@ def _statement_words(stmt: Node, ctx: Ctx) -> set[str]:
     return words
 
 
-_BODY_NODES = {"block", "statement_block", "class_body", "declaration_list"}
-_DEFINITION_NODES = _FUNC_NODES | {"class_definition", "class_declaration"}
+_BODY_NODES = {
+    "block", "statement_block", "class_body", "declaration_list",
+    "field_declaration_list", "enum_variant_list",
+}
+_DEFINITION_NODES = _FUNC_NODES | {
+    "class_definition", "class_declaration", "impl_item", "mod_item",
+    "struct_item", "trait_item", "enum_item", "function_item",
+}
 
 
 def _next_statement(children, start: int, ctx: Ctx) -> Node | None:
@@ -591,22 +798,22 @@ def _next_statement(children, start: int, ctx: Ctx) -> Node | None:
     first child.
     """
     for sib in children[start:]:
-        if sib.type == "comment":
+        if _is_comment(sib):
             continue
         if sib.type in _BODY_NODES:
-            inner = [c for c in sib.named_children if c.type != "comment"]
+            inner = [c for c in sib.named_children if not _is_comment(c)]
             return inner[0] if inner else None
         if sib.type in _DEFINITION_NODES:
             body = sib.child_by_field_name("body")
             if body is not None:
-                inner = [c for c in body.named_children if c.type != "comment"]
+                inner = [c for c in body.named_children if not _is_comment(c)]
                 return inner[0] if inner else None
         return sib
     return None
 
 
 _DOC_OR_DIRECTIVE = re.compile(
-    r"^\s*(?:/\*\*|///|\*)"
+    r"^\s*(?:/\*\*|///|//!|\*)"
     r"|@ts-(?:ignore|nocheck|expect-error)|eslint|biome-ignore|prettier-ignore|istanbul|c8 ignore"
     r"|webpackChunkName|#\s*type:|noqa|pylint:|pyright:"
 )
@@ -634,21 +841,21 @@ def rule_narrator_comment(ctx: Ctx) -> Iterator[Finding]:
     for parent in ctx.nodes:
         children = parent.children
         for i, child in enumerate(children):
-            if child.type != "comment":
+            if not _is_comment(child):
                 continue
             # Only evaluate at the start of a comment run. Mid-run fragments
             # ("... and it returns the filePath.") are prose, not narration.
-            if i > 0 and children[i - 1].type == "comment":
+            if i > 0 and _is_comment(children[i - 1]):
                 continue
             # collect a run of comments (comments are `extra` nodes, so they are
             # siblings of the statement they document)
             run = []
             j = i
-            while j < len(children) and children[j].type == "comment":
+            while j < len(children) and _is_comment(children[j]):
                 run.append(children[j])
                 j += 1
             stmt = _next_statement(children, j, ctx)
-            if stmt is None:
+            if stmt is None or stmt.type in _TYPE_DECLS:
                 continue
             comment_words = _words(" ".join(ctx.text(c) for c in run))
             if len(comment_words) < 1:
@@ -691,7 +898,7 @@ def rule_deep_nesting(ctx: Ctx) -> Iterator[Finding]:
     Depth is structural. A nested function restarts the count (extracting a
     helper is the fix, not a breach), and `else if` chains do not accumulate.
     """
-    controls = _CONTROL_PY if ctx.family == "python" else _CONTROL_JS
+    controls = _CONTROLS[ctx.family]
     limit = MAX_DEPTH
 
     def depth_of(node: Node, depth: int, worst: list[tuple[int, Node]]) -> None:
@@ -723,16 +930,18 @@ def rule_deep_nesting(ctx: Ctx) -> Iterator[Finding]:
 
 
 def family_is_else_if(node: Node, ctx: Ctx) -> bool:
-    """True when this `if` is the `else if` continuation of its parent."""
-    if node.type != "if_statement":
+    """True when this `if` is the `else if` continuation of its parent.
+
+    Three grammars spell it the same way: an `else_clause` holding a single `if`.
+    A chain of them is one decision, not four levels of nesting.
+    """
+    if node.type not in ("if_statement", "if_expression"):
         return False
     parent = node.parent
-    if parent is None:
+    if parent is None or parent.type != "else_clause":
         return False
-    if ctx.family == "js" and parent.type == "else_clause":
-        named = [c for c in parent.named_children if c.type != "comment"]
-        return len(named) == 1 and named[0].id == node.id
-    return False
+    named = [c for c in parent.named_children if not _is_comment(c)]
+    return len(named) == 1 and named[0].id == node.id
 
 
 # --------------------------------------------------------------------------- #
@@ -742,6 +951,12 @@ def family_is_else_if(node: Node, ctx: Ctx) -> bool:
 def _binding_names(node: Node, ctx: Ctx) -> Iterator[Node]:
     """Yield identifier nodes that introduce a new local binding."""
     fam = ctx.family
+    if fam == "rust":
+        if node.type in ("let_declaration", "parameter", "closure_parameter"):
+            pattern = node.child_by_field_name("pattern")
+            if pattern is not None and pattern.type == "identifier":
+                yield pattern
+        return
     if fam == "python":
         if node.type == "parameters":
             for child in node.named_children:
@@ -770,6 +985,11 @@ def _binding_names(node: Node, ctx: Ctx) -> Iterator[Node]:
             yield pat
 
 
+_TEMP_API = re.compile(
+    r"tempfile|tempdir|mkdtemp|mkstemp|mktemp|NamedTemporaryFile|TemporaryDirectory|TempDir|temp_dir",
+)
+
+
 def rule_junk_identifier(ctx: Ctx) -> Iterator[Finding]:
     """Placeholder / graveyard binding names.
 
@@ -783,6 +1003,11 @@ def rule_junk_identifier(ctx: Ctx) -> Iterator[Finding]:
             text = ctx.text(name)
             if not (_JUNK_PATTERN.search(text) or text.lower() in _JUNK_EXACT):
                 continue
+            # A variable named for a temporary file that *is* a temporary file is
+            # accurately named, not sloppy.
+            if text.lower().startswith(("tmp", "temp")) or "_temp" in text.lower():
+                if name.parent is not None and _TEMP_API.search(ctx.text(name.parent)):
+                    continue
             key = (name.start_byte, name.end_byte)
             if key in seen:
                 continue
@@ -804,6 +1029,21 @@ _CODE_HINT = re.compile(
 )
 _PROSE_TAIL = re.compile(r"[.!?]\s*$")
 
+_COMMENT_STMT_TYPES = {
+    "js": {
+        "expression_statement", "lexical_declaration", "variable_declaration",
+        "return_statement", "if_statement", "for_statement",
+    },
+    "python": {
+        "expression_statement", "assignment", "return_statement", "if_statement",
+        "for_statement", "import_statement", "call",
+    },
+    "rust": {
+        "expression_statement", "let_declaration", "return_expression",
+        "if_expression", "for_expression", "use_declaration", "macro_invocation",
+    },
+}
+
 
 def _is_standalone_comment(node: Node, ctx: Ctx) -> bool:
     """True if the comment is alone on its line (not trailing live code)."""
@@ -817,7 +1057,7 @@ def rule_commented_out_code(ctx: Ctx) -> Iterator[Finding]:
     """A comment whose body parses as a statement in the same language."""
     fam = ctx.family
     for node in ctx.nodes:
-        if node.type != "comment":
+        if not _is_comment(node):
             continue
         if not _is_standalone_comment(node, ctx):
             continue  # a trailing suppression on live code is not dead code
@@ -831,7 +1071,7 @@ def rule_commented_out_code(ctx: Ctx) -> Iterator[Finding]:
             continue
         if sub.has_error:
             continue
-        named = [c for c in sub.named_children if c.type != "comment"]
+        named = [c for c in sub.named_children if not _is_comment(c)]
         if len(named) != 1:
             continue
         stmt = named[0]
@@ -841,15 +1081,7 @@ def rule_commented_out_code(ctx: Ctx) -> Iterator[Finding]:
             inner = [c for c in stmt.named_children]
             if not inner or inner[0].type in ("identifier", "string", "binary_expression"):
                 continue
-        if fam == "js" and stmt.type not in (
-            "expression_statement", "lexical_declaration", "variable_declaration",
-            "return_statement", "if_statement", "for_statement",
-        ):
-            continue
-        if fam == "python" and stmt.type not in (
-            "expression_statement", "assignment", "return_statement", "if_statement",
-            "for_statement", "import_statement", "call",
-        ):
+        if stmt.type not in _COMMENT_STMT_TYPES[fam]:
             continue
         yield _find(
             ctx, "commented_out_code", node,

@@ -82,14 +82,23 @@ def blank_line_padding(source: str, lang: str) -> str:
 
 
 def quote_style(source: str, lang: str) -> str:
-    """Swap quote characters on simple string literals."""
+    """Swap quote characters on simple string literals.
+
+    Rust has no alternative: `'x'` is a char literal and `'a` is a lifetime, so
+    swapping quotes would change the program. Skipping is the honest transform,
+    and it is why the suite is language-aware rather than sentence-level.
+    """
+    if lang == "rust":
+        return source
     tree = parse(lang, source.encode())
     edits: list[tuple[int, int, str]] = []
     for node in walk(tree.root_node):
-        if node.type != "string":
+        if node.type not in ("string", "string_literal"):
             continue
         raw = source[node.start_byte : node.end_byte]
         if len(raw) < 2 or raw[:3] in ('"""', "'''"):
+            continue
+        if raw[0] not in ("'", '"'):  # rust raw strings (r"...", b"...")
             continue
         inner = raw[1:-1]
         if raw.startswith('"') and raw.endswith('"') and "'" not in inner and "\\" not in inner:
