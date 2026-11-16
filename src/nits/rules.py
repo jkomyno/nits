@@ -729,14 +729,36 @@ _ELISION = re.compile(
 )
 
 
+_ELISION_STRONG = re.compile(
+    r"\btodo:? implement\b|\bnot implemented yet\b|\bplaceholder (?:for|implementation)\b"
+    r"|^\s*\.\.\.\s*$|^\s*snip\s*$",
+    re.I,
+)
+_COMMENT_LINE = re.compile(r"\s*(?://|#|/\*|\*)")
+
+
+def _stands_alone(node: Node, ctx: Ctx) -> bool:
+    """Not a doc comment and not one line of a paragraph of comments."""
+    if _DOC_COMMENT.match(ctx.text(node)):
+        return False
+    above = ctx.line_text(node.start_point[0])
+    below = ctx.line_text(node.end_point[0] + 2)
+    return not (_COMMENT_LINE.match(above) or _COMMENT_LINE.match(below))
+
+
 def rule_elision_comment(ctx: Ctx) -> Iterator[Finding]:
-    """Comments that stand in for code that was never written."""
+    """Comments that stand in for code that was never written.
+
+    "TODO: implement" is a stand-in wherever it appears. Softer phrases such as
+    "same as above" or "unchanged from" are only a stand-in when the comment is
+    nothing else; inside a paragraph they are ordinary English.
+    """
     for node in ctx.nodes:
         if not _is_comment(node):
             continue
         text = ctx.text(node)
         body = re.sub(r"^\s*(?://+|/\*+|\*+|#+|--+)+", "", text).strip().rstrip("*/").strip()
-        if _ELISION.search(body):
+        if _ELISION_STRONG.search(body) or (_ELISION.search(body) and _stands_alone(node, ctx)):
             yield _find(
                 ctx, "elision_comment", node,
                 "elision comment — implement it or delete the line; this is a truncation artifact",

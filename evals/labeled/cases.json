@@ -856,6 +856,22 @@
    "source": "fn as_known(&self) -> Option<&KnownError> {\n    match &self.inner {\n        ErrorType::Known(err) => Some(err),\n        ErrorType::Unknown(_) => None,\n    }\n}\n",
    "expect": "clean",
    "note": "ErrorType is not Err"
+  },
+  {
+   "id": "el-ts-prose-unchanged",
+   "rule": "elision_comment",
+   "lang": "ts",
+   "source": "it('keeps the shortest path', () => {\n  // X is provided twice along the only path. Path is unchanged from the\n  // structural shortest; both provider edges keep X.\n  const graph = build([edge('A', 'B')]);\n  expect(shortest(graph)).toEqual(['A', 'B']);\n});\n",
+   "expect": "clean",
+   "note": "a phrase inside a paragraph"
+  },
+  {
+   "id": "el-ts-doc-rest-of-file",
+   "rule": "elision_comment",
+   "lang": "ts",
+   "source": "/**\n * Rewrite one key of the frontmatter, leaving the\n * rest of the file untouched.\n */\nexport function rewriteKey(text: string): string {\n  return text;\n}\n",
+   "expect": "clean",
+   "note": "doc comment prose"
   }
  ]
 }
