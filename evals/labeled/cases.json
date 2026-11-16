@@ -800,6 +800,22 @@
    "source": "// ── Service layers ──────────────────────\n\nconst MainLayer = Layer.mergeAll(OutputService.layer, UpdateCheckService.layer)\n",
    "expect": "clean",
    "note": "section header drawn with box characters"
+  },
+  {
+   "id": "sw-ts-catch-explained-above",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "async function race(resultPromise, timeoutPromise) {\n  // Attach no-op handlers so the losing promise is not an unhandled rejection.\n  resultPromise.catch(() => {});\n  timeoutPromise.catch(() => {});\n  return Promise.race([resultPromise, timeoutPromise]);\n}\n",
+   "expect": "clean",
+   "note": "reason on the line above the run"
+  },
+  {
+   "id": "sw-ts-catch-unexplained",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "async function cleanup(dir) {\n  await prepare(dir);\n  await rm(dir, { recursive: true }).catch(() => {});\n}\n",
+   "expect": "flag",
+   "note": "the statement above is not a reason"
   }
  ]
 }

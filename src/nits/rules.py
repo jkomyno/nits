@@ -505,6 +505,31 @@ def _rust_swallowed(ctx: Ctx) -> Iterator[Finding]:
             )
 
 
+_STATEMENT_CONTAINERS = frozenset({"statement_block", "program", "switch_case", "switch_default"})
+
+
+def _explained_above(node: Node, ctx: Ctx) -> bool:
+    """True when a comment directly above the statement says why.
+
+    `.catch(() => {})` has no body to hold a comment, so its reason goes on the
+    line above. A run of such lines can share one comment.
+    """
+    stmt = node
+    while stmt.parent is not None and stmt.parent.type not in _STATEMENT_CONTAINERS:
+        stmt = stmt.parent
+    row = stmt.start_point[0]
+    prev = stmt.prev_named_sibling
+    while prev is not None and prev.end_point[0] == row - 1:
+        if _is_comment(prev):
+            text = _COMMENT_MARK.sub("", ctx.text(prev)).strip().rstrip("*/").strip()
+            return len(text) >= 3
+        if ".catch(" not in ctx.text(prev):
+            return False
+        row = prev.start_point[0]
+        prev = prev.prev_named_sibling
+    return False
+
+
 def rule_swallowed_error(ctx: Ctx) -> Iterator[Finding]:
     """A handler whose body has no effect on the error."""
     if ctx.family == "rust":
@@ -516,7 +541,7 @@ def rule_swallowed_error(ctx: Ctx) -> Iterator[Finding]:
             if stmts is None:
                 # `.catch(e => e)` returns the error to the caller: an identity
                 # catch, not a swallowed one.
-                if ctx.text(body).strip() in _NON_BLOCK_NOOP:
+                if ctx.text(body).strip() in _NON_BLOCK_NOOP and not _explained_above(node, ctx):
                     yield _find(
                         ctx, "swallowed_error", header,
                         "error is caught and discarded — rethrow, handle it, or let it propagate",
