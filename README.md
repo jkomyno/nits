@@ -2,7 +2,7 @@
 
 `nits` checks the lines a change touched for nine kinds of sloppy code, such as swallowed errors, failures returned as empty values, dev defaults on environment variables, and comments that stand in for code nobody wrote. It parses Python, TypeScript/JavaScript and Rust with tree-sitter, reports AST nodes rather than lines, and is advisory by default.
 
-The one idea that sets it apart is that every rule carries a precision number, and the number is printed next to every finding. That number is the lower of two measurements, taken per language. One comes from a labeled corpus written alongside the rules. The other comes from findings read by hand on code that was never used while writing them. Two cells in the table below fall under the 0.80 bar, and they stay there in plain sight.
+The one idea that sets it apart is that every rule carries a precision number, and the number is printed next to every finding. That number is the lower of two measurements, taken per language. One comes from a labeled corpus written alongside the rules. The other comes from findings read one by one against the source, on code that was never used while writing the rules. Seven cells in the table below fall under the 0.80 bar, and they stay there in plain sight.
 
 ```console
 $ nits diff
@@ -25,7 +25,7 @@ uv run --project . nits invariance      # meaning-preserving transform suite
 uv run --project . nits fp <path>       # finding density, plus a seeded sample to read by hand
 ```
 
-`nits diff` reads `git diff -U0` and drops every finding outside the added lines. A new file counts as entirely added, but only once Git knows about it. Untracked files are not in the diff, so they are not checked.
+`nits diff` reads `git diff -U0` and drops every finding outside the added lines. A new file counts as entirely added, and so does an untracked file that Git does not ignore. `--staged` reads the index only, so it leaves untracked files out.
 
 `check` and `diff` exit `0` whatever they find, and `2` when a path or `git diff` fails. With `--gate <precision>` they exit `1` if any finding whose rule measures at least that precision, in that file's language, lands in scope.
 
@@ -38,34 +38,41 @@ Advisory is the default because a mandatory gate on a probabilistic signal gets 
 
 ## The rules
 
-| Rule | Default | ts | py | rs | Read by hand on held-out code | Catches |
+| Rule | Default | ts | py | rs | Held-out sample, true / read | Catches |
 |---|---|---|---|---|---|---|
-| `config_fallback` | on | 0.95~ | 0.95~ | 0.95~ | none | `process.env.X \|\| 'localhost'`, `os.getenv('X', 'changeme')`, `env::var("X").unwrap_or("localhost".into())` |
-| `swallowed_error` | on | 0.95 | 0.95~ | **0.50** | ts 2/2, rs 2/4 | a handler body with no effect, `_ = error`, `void err`, `r.ok();`, `let _ = send()`, `Err(_) => {}` |
-| `error_to_empty_success` | on | 0.95~ | 0.95~ | 0.95~ | 4/4 pooled | a handler returning `{}`, `[]` or `None`, `Err(e) => Vec::new()` |
-| `elision_comment` | on | 0.95~ | 0.95~ | 0.95~ | none | `// ... rest of the implementation`, `TODO: implement` |
-| `deep_nesting` | on | 0.95~ | 0.95~ | 0.95~ | none | control nesting of depth 5 or more in one function, counted on the AST |
-| `narrator_comment` | on | **0.64** | 0.76~ | 0.91 | ts 9/14, rs 10/11 | a comment restating the statement it precedes |
-| `junk_identifier` | on | 0.95~ | 0.95~ | 0.95~ | 1/1 pooled | `tmp`, `data1`, `foo`, `_old`, `_backup` |
-| `commented_out_code` | opt-in | 0.95~ | 0.95~ | 0.95~ | 7/7 pooled | a comment whose body parses as a statement |
-| `suppression_without_reason` | opt-in | 0.95~ | 0.95~ | 0.95~ | none | a bare `# noqa` or `@ts-ignore`, a crate-wide `#![allow]` |
+| `config_fallback` | on | 0.95 | 0.95~ | 0.95~ | ts 10/10 | `process.env.X \|\| 'localhost'`, `os.getenv('X', 'changeme')`, `env::var("X").unwrap_or("localhost".into())` |
+| `swallowed_error` | on | **0.77** | **0.71** | **0.53** | ts 20/26, py 12/17, rs 10/19 | a handler body with no effect, `_ = error`, `void err`, `r.ok();`, `let _ = send()`, `Err(_) => {}` |
+| `error_to_empty_success` | on | 0.95 | 0.95 | **0.00** | ts 19/20, py 8/8, rs 0/1, 4/4 unsplit | a handler returning `{}`, `[]` or `None`, `Err(e) => Vec::new()` |
+| `elision_comment` | on | 0.95 | 0.95~ | 0.95~ | ts 3/3 | `// ... rest of the implementation`, `TODO: implement` |
+| `deep_nesting` | on | **0.74** | 0.95 | 0.95 | ts 14/19, py 4/4, rs 1/1 | control nesting of depth 5 or more in one function, counted on the AST |
+| `narrator_comment` | on | **0.61** | 0.95 | 0.92 | ts 36/59, py 6/6, rs 11/12 | a comment restating the statement it precedes |
+| `junk_identifier` | on | 0.95 | 0.95~ | 0.91 | ts 8/8, rs 10/11, 1/1 unsplit | `tmp`, `data1`, `foo`, `_old`, `_backup` |
+| `commented_out_code` | opt-in | 0.82 | **0.75~** | **0.33** | ts 9/11, rs 2/6, 7/7 unsplit | a comment whose body parses as a statement |
+| `suppression_without_reason` | opt-in | 0.95 | 0.95 | 0.95 | ts 2/2, py 1/1, rs 1/1 | a bare `# noqa` or `@ts-ignore`, a crate-wide `#![allow]` |
 
-A cell without `~` has a hand-read sample in that language. A cell with `~` falls back to the pooled number, which is a weaker claim. Only four cells have their own sample. For the four rules marked "none", the number is the in-sample cap alone, and the held-out side is still unmeasured.
+A cell without `~` has a held-out sample in that language. A cell with `~` falls back to every sample of that rule pooled together, which is a weaker claim. "Unsplit" samples were recorded without a language and count toward the pooled number only. `src/nits/heldout.py` lists each sample with its seed, the commit it was drawn from, and what each miss was.
+
+A finding counts as true when the code matches what the rule says it reports. Whether acting on it makes the code better is the task metric, which is not measured.
 
 Precision is capped at 0.95. A rule with no observed false positive is not a perfect rule, it is an under-measured one.
 
-The two cells below 0.80 have causes I can name:
+Every number is a floor. When a sample showed a bug, I fixed the rule, added a labeled case, and kept the sample's misses in the count. Later samples on code nobody had read add to it.
 
-- `narrator_comment` on TypeScript (0.64). Type files attract label comments like `// CamelCase delete response schema`, which look like narration unless you know what the next node is. On Rust the same rule measures 0.91, because Rust code tends to comment its own actions.
-- `swallowed_error` on Rust (0.50). `let _ = tracing_subscriber::fmt::try_init()` discards a `Result` on purpose, and syntax alone cannot tell that apart from a dropped error. The TypeScript sample measured 2 of 2.
+The cells below 0.80 have causes I can name:
 
-Below-bar cells stay on and keep printing, but they are excluded from `--gate 0.80`, from `--min-precision 0.80`, and from the reward, per language. `narrator_comment` is on by default even though its pooled held-out precision is 0.76. I don't expect more heuristics to fix it on TypeScript. That needs labels mined from real commits.
+- `swallowed_error` everywhere. In TypeScript, the misses were a queue tail whose source promise is returned to the caller, a `null` result the caller checks, and discards explained by a comment on the line above, which the rule now reads. In Python, they were explanatory comments inside `except` that the rule did not see and fallback assignments read as no-ops, both fixed since. In Rust, `let _ = tracing_subscriber::fmt::try_init()` and `let _ = provider.install_default()` discard a `Result` on purpose, and syntax alone cannot tell that apart from a dropped error.
+- `narrator_comment` on TypeScript (0.61). Label comments look like narration: byte-layout notes such as `// Random (5 bytes) -> bytes 4-8`, field names, type labels. On Rust the same rule measures 0.92, because Rust code tends to comment its own actions.
+- `deep_nesting` on TypeScript (0.74). Five of the first nine counted `catch` as a level on top of its `try`. That is fixed, and the fresh sample read 10 of 10.
+- `commented_out_code` on Rust (0.33). The first four were code examples in `///` doc comments, which the rule now skips. The fresh sample read 2 of 2. Python has no sample of its own and inherits the pooled 0.75.
+- `error_to_empty_success` on Rust (0.00). One finding is all the held-out Rust code produced, and it was `Err(TryRecvError::Empty) => None`, where "empty" is not a failure.
+
+Below-bar cells stay on and keep printing, but they are excluded from `--gate 0.80`, from `--min-precision 0.80`, and from the reward, per language. `swallowed_error`, `narrator_comment` and `deep_nesting` are on by default even though their pooled precision is 0.68, 0.69 and 0.79. I don't expect more heuristics to fix `narrator_comment` on TypeScript. That needs labels mined from real commits.
 
 ## Why it works on nodes
 
 Findings carry the AST span they came from. Re-indenting a file cannot create or destroy a finding, and a continuation line cannot pass for nesting. A nested function restarts the depth count, so extracting a helper fixes the finding instead of tripping it, and `else if` chains do not accumulate.
 
-Error handlers are matched by shape. `except E: pass`, `except E as e: _ = e` and `catch (err) { void err; }` are the same node shape, so renaming the binding changes nothing. A handler that contains an explanatory comment is not reported, because silence is the failure mode and a comment is the opposite of silence. A handler returning `false` is not reported either, since a boolean is a decision rather than an empty value.
+Error handlers are matched by shape. `except E: pass`, `except E as e: _ = e` and `catch (err) { void err; }` are the same node shape, so renaming the binding changes nothing. A handler that contains an explanatory comment is not reported, and neither is a `.catch(() => {})` with one on the line above, because silence is the failure mode and a comment is the opposite of silence. A handler returning `false` is not reported either, since a boolean is a decision rather than an empty value.
 
 The alternative I measured against is a byte-grid model with hand-tuned thresholds and no parser. It reads whitespace, so its signals move when the indentation does, and they point the wrong way on real code.
 
@@ -86,34 +93,37 @@ The lesson I took from it has nothing to do with neural nets. A hygiene signal e
 
 ### Labeled corpus
 
-108 cases. 44 are TypeScript, 33 Python and 31 Rust. 14 are adversarial evasions that defeat indentation-based tools. 8 are anti-inversion guards, code where nothing may fire, such as descriptive names.
+120 cases. 51 are TypeScript, 35 Python and 34 Rust. 14 are adversarial evasions that defeat indentation-based tools. 8 are anti-inversion guards, code where nothing may fire, such as descriptive names.
 
 ```
 rule                             prec    rec   tp  fp  fn  tn
 config_fallback                  1.00   1.00    9   0   0   6
-swallowed_error                  1.00   1.00   13   0   0   6
-error_to_empty_success           1.00   1.00    9   0   0   3
+swallowed_error                  1.00   1.00   14   0   0  11
+error_to_empty_success           1.00   1.00    9   0   0   4
 elision_comment                  1.00   1.00    6   0   0   3
-deep_nesting                     1.00   1.00    4   0   0   5
-narrator_comment                 1.00   1.00    6   0   0   5
-junk_identifier                  1.00   1.00    4   0   0   4
-commented_out_code               1.00   1.00    3   0   0   4
+deep_nesting                     1.00   1.00    4   0   0   6
+narrator_comment                 1.00   1.00    6   0   0   6
+junk_identifier                  1.00   1.00    4   0   0   5
+commented_out_code               1.00   1.00    3   0   0   6
 suppression_without_reason       1.00   1.00    4   0   0   6
 
 no inversions — every asserted-clean case stayed clean
 ```
 
-These are in-sample, and therefore worth little on their own. The cases were written with the rules, which is the same trap that makes headline numbers elsewhere unreproducible.
+These are in-sample, and therefore worth little on their own. The cases were written with the rules, which is the same trap that makes headline numbers elsewhere unreproducible. `nits eval` fails if any case is misclassified, so a fix cannot quietly trade one case for another.
 
 ### Held-out code
 
-These repositories were never read while writing a rule. The table reports finding density only. Precision comes from the hand-read samples in `src/nits/heldout.py`, each with its seed.
+These repositories were never read while writing a rule. The table reports finding density with the default rules. Precision comes from the samples in `src/nits/heldout.py`.
 
 | Repository | Language | Files | Lines | Findings | Per 100 lines |
 |---|---|---|---|---|---|
-| [`jkomyno/esmwell` at `0fe5d07`](https://github.com/jkomyno/esmwell/tree/0fe5d07af718736e5a3cd59b7fd839c268789015) | Rust/Py | 316 | 52,193 | 23 | 0.04 |
-| [`OrchestratorInc/agent-orchestrator` at `4505071`](https://github.com/OrchestratorInc/agent-orchestrator/tree/450507193ee3988ded574547132c749256ab8454) | TS | 174 | 42,148 | 240 | 0.57 |
-| [`jkomyno/uniku` at `66dfbde`](https://github.com/jkomyno/uniku/tree/66dfbdeff0d8a7483beaa98b83c106f6092efb29) | TS | 177 | 22,322 | 24 | 0.11 |
+| [`jkomyno/esmwell` at `0fe5d07`](https://github.com/jkomyno/esmwell/tree/0fe5d07af718736e5a3cd59b7fd839c268789015) | TS | 113 | 18,555 | 7 | 0.04 |
+| [`OrchestratorInc/agent-orchestrator` at `4505071`](https://github.com/OrchestratorInc/agent-orchestrator/tree/450507193ee3988ded574547132c749256ab8454) | TS | 174 | 42,148 | 217 | 0.51 |
+| [`jkomyno/uniku` at `66dfbde`](https://github.com/jkomyno/uniku/tree/66dfbdeff0d8a7483beaa98b83c106f6092efb29) | TS | 176 | 22,217 | 21 | 0.09 |
+| [`mastra-ai/mastra` at `ff4106b`](https://github.com/mastra-ai/mastra/tree/ff4106b87bef3535162f2d812b6f42a8a9fd1924) | TS | 9,381 | 2,124,326 | 9,392 | 0.44 |
+| [`mvanhorn/last30days-skill` at `ae8c323`](https://github.com/mvanhorn/last30days-skill/tree/ae8c32327f86f516894a2d94edc6127314465708) | Py | 85 | 36,876 | 145 | 0.39 |
+| TypeScript library (external) | TS | 192 | 44,470 | 35 | 0.08 |
 | TypeScript SDK (external), 400-file sample | TS | 400 | 85,510 | 244 | 0.29 |
 | TypeScript monorepo (external) | TS | 275 | 82,648 | 715 | 0.87 |
 | Rust workspace (external) | Rust | 177 | 70,510 | 332 | 0.47 |
@@ -123,15 +133,13 @@ These repositories were never read while writing a rule. The table reports findi
 | private crate | Rust | 51 | 24,708 | 13 | 0.05 |
 | private fork of a Rust crate | Rust | 10 | 1,980 | 8 | 0.40 |
 
-Each linked row names the commit that reproduces its file and line counts. Rows named by role are private, or were measured on a working tree that no public commit reproduces.
+The linked rows and the TypeScript library were measured with the current rules at the commit shown, over the whole tree. The other rows named by role are private, or were measured on a working tree that no public commit reproduces, and they come from an earlier version of the rules. The TypeScript SDK row stops at `nits fp`'s default limit of 400 files.
 
-The `uniku` row comes from the current rules. The older rows came from an earlier version, and re-running today's rules at the linked commits gives slightly different finding counts, for example 236 rather than 240 for `agent-orchestrator`.
-
-`check` and `fp` skip vendored and generated trees such as `node_modules/`, `third_party/`, `site-packages/`, `dist/`, `target/` and test fixtures, plus minified bundles. `diff` scores whatever the diff touches.
+`check` and `fp` skip vendored and generated trees such as `node_modules/`, `third_party/`, `site-packages/`, `dist/`, `target/`, `fixtures/`, `__fixtures__/` and `.worktrees/`, plus minified bundles and `*.gen.*` files. `diff` scores whatever the diff touches.
 
 ### Invariance
 
-756 strict checks, 7 meaning-preserving transforms over the 108 cases, all passing.
+840 strict checks, 7 meaning-preserving transforms over the 120 cases, all passing.
 
 | Transform | Result |
 |---|---|
@@ -140,7 +148,7 @@ The `uniku` row comes from the current rules. The older rows came from an earlie
 | `quote_style` | findings identical, and a no-op on Rust, where `'x'` is a char |
 | `rename_catch_binding` | findings identical |
 
-Paraphrasing the words in comments changes the findings of 6 of 108 cases (6%), all `narrator_comment`. A rule that compares comment text with identifier text will always move when the text does, so the suite reports this coupling instead of hiding it.
+Paraphrasing the words in comments changes the findings of 6 of 120 cases (5%), all `narrator_comment`. A rule that compares comment text with identifier text will always move when the text does, so the suite reports this coupling instead of hiding it.
 
 ## What it doesn't measure
 
@@ -173,4 +181,4 @@ just check       # eval + invariance + tests
 just calibrate   # regenerate calibration.py from the labeled corpus
 ```
 
-To add a rule, implement `rule_x(ctx) -> Iterator[Finding]` in `src/nits/rules.py` and register it. Add labeled cases with positive and negative examples, plus an anti-inversion case if the rule could fire on good code. Then run `just calibrate`, sample it on held-out code with `nits fp <path> --sample N --seed S`, and record the result in `src/nits/heldout.py`.
+To add a rule, implement `rule_x(ctx) -> Iterator[Finding]` in `src/nits/rules.py` and register it. Add labeled cases with positive and negative examples, plus an anti-inversion case if the rule could fire on good code. Then run `just calibrate`, sample it on held-out code with `nits fp <path> --rules rule_x --sample N --seed S`, and record the result, misses included, in `src/nits/heldout.py`.
