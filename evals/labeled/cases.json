@@ -824,6 +824,14 @@
    "source": "pub fn progress(mut self, bar: ProgressBar) -> Self {\n    self.progress = Some(bar);\n    self\n}\n",
    "expect": "clean",
    "note": "the name is a word of its type"
+  },
+  {
+   "id": "sw-py-fallback-assignment",
+   "rule": "swallowed_error",
+   "lang": "python",
+   "source": "def enrich(items):\n    try:\n        enriched = [fetch(i) for i in items]\n    except Exception:\n        enriched = items\n    return enriched\n",
+   "expect": "clean",
+   "note": "a fallback value, not an alias of the error"
   }
  ]
 }

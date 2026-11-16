@@ -260,7 +260,35 @@ def _js_env_key(node: Node, ctx: Ctx) -> str | None:
     return _string_literal(node.child_by_field_name("index"))
 
 
-def _inert_statements(nodes: list[Node], ctx: Ctx) -> bool:
+def _handler_binding(header: Node, ctx: Ctx) -> str | None:
+    """The name a handler binds its error to: `except E as e`, `catch (e)`."""
+    if header.type == "except_clause":
+        for child in header.named_children:
+            if child.type == "as_pattern":
+                target = [c for c in child.named_children if c.type == "as_pattern_target"]
+                return ctx.text(target[0]).strip() if target else None
+        return None
+    if header.type == "catch_clause":
+        param = header.child_by_field_name("parameter")
+        return ctx.text(param).strip() if param is not None else None
+    return None
+
+
+def _alias_only(assignment: Node, ctx: Ctx, binding: str | None) -> bool:
+    """`_ = error` or `ignored = err`: an assignment that only moves the error aside.
+
+    `items = fallback_items` is a fallback, not an alias, so it does not count.
+    """
+    lhs = assignment.child_by_field_name("left")
+    rhs = assignment.child_by_field_name("right")
+    if rhs is None or rhs.type not in ("identifier", "member_expression", "attribute", "subscript"):
+        return False
+    if lhs is not None and ctx.text(lhs).strip().startswith("_"):
+        return True
+    return binding is not None and ctx.text(rhs).strip() == binding
+
+
+def _inert_statements(nodes: list[Node], ctx: Ctx, binding: str | None = None) -> bool:
     """True if every statement is a no-op on the error (pass / void / alias)."""
     if not nodes:
         return True
@@ -278,18 +306,12 @@ def _inert_statements(nodes: list[Node], ctx: Ctx) -> bool:
             if expr.type == "unary_expression" and ctx.text(expr).startswith("void"):
                 continue
             # python nests assignments inside expression_statement
-            if expr.type in ("assignment", "augmented_assignment"):
-                rhs = expr.child_by_field_name("right")
-                if rhs is not None and rhs.type in (
-                    "identifier", "member_expression", "attribute", "subscript",
-                ):
+            if expr.type in ("assignment", "augmented_assignment", "assignment_expression"):
+                if _alias_only(expr, ctx, binding):
                     continue
             return False
         if t == "assignment" or t == "assignment_expression":
-            rhs = stmt.child_by_field_name("right")
-            if rhs is not None and rhs.type in (
-                "identifier", "member_expression", "attribute", "subscript",
-            ):
+            if _alias_only(stmt, ctx, binding):
                 continue
             return False
         if t in ("lexical_declaration", "variable_declaration"):
@@ -553,7 +575,7 @@ def rule_swallowed_error(ctx: Ctx) -> Iterator[Finding]:
                 continue  # `.catch(() => {})`: the reason sits on the line above
             if any(s.type == "return_statement" for s in stmts):
                 continue  # error_to_empty_success owns returns
-            if _inert_statements(stmts, ctx):
+            if _inert_statements(stmts, ctx, _handler_binding(header, ctx)):
                 yield _find(
                     ctx, "swallowed_error", header,
                     "error is caught and discarded — rethrow, handle it, or let it propagate",
