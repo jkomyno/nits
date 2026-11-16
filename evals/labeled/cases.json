@@ -768,6 +768,14 @@
    "source": "function decode(path: string) {\n  let decoded: string\n  try {\n    decoded = decodeURIComponent(path)\n  } catch {\n    return null // Invalid URL encoding\n  }\n  return decoded\n}\n",
    "expect": "clean",
    "note": "the trailing comment is a child of the return statement"
+  },
+  {
+   "id": "dn-ts-catch-same-level",
+   "rule": "deep_nesting",
+   "lang": "ts",
+   "source": "function syncAll(items) {\n  if (items) {\n    for (const item of items) {\n      try {\n        sync(item)\n      } catch {\n        if (item.retry) {\n          queue(item)\n        }\n      }\n    }\n  }\n}\n",
+   "expect": "clean",
+   "note": "catch shares the level of its try"
   }
  ]
 }

@@ -13,7 +13,7 @@ MEASURED: dict[str, tuple[float, int, int]] = {
     "swallowed_error": (0.95, 13, 7),
     "error_to_empty_success": (0.95, 9, 4),
     "elision_comment": (0.95, 6, 3),
-    "deep_nesting": (0.95, 4, 5),
+    "deep_nesting": (0.95, 4, 6),
     "narrator_comment": (0.95, 6, 5),
     "junk_identifier": (0.95, 4, 4),
     "commented_out_code": (0.95, 3, 4),

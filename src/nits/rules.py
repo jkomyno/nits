@@ -132,7 +132,7 @@ _JUNK_PATTERN = re.compile(
 
 _CONTROL_JS = {
     "if_statement", "for_statement", "for_in_statement", "while_statement",
-    "do_statement", "switch_statement", "try_statement", "catch_clause",
+    "do_statement", "switch_statement", "try_statement",
 }
 _CONTROL_PY = {
     "if_statement", "for_statement", "while_statement", "try_statement",
