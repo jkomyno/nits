@@ -9,15 +9,15 @@ from __future__ import annotations
 
 #: rule id -> (precision, n_positive, n_negative) from the labeled corpus
 MEASURED: dict[str, tuple[float, int, int]] = {
-    "config_fallback": (0.95, 6, 4),
-    "swallowed_error": (0.95, 8, 4),
-    "error_to_empty_success": (0.95, 7, 2),
-    "elision_comment": (0.95, 5, 3),
-    "deep_nesting": (0.95, 3, 3),
-    "narrator_comment": (0.95, 5, 3),
-    "junk_identifier": (0.95, 3, 3),
-    "commented_out_code": (0.95, 2, 3),
-    "suppression_without_reason": (0.95, 3, 5),
+    "config_fallback": (0.95, 9, 6),
+    "swallowed_error": (0.95, 13, 6),
+    "error_to_empty_success": (0.95, 9, 3),
+    "elision_comment": (0.95, 6, 3),
+    "deep_nesting": (0.95, 4, 5),
+    "narrator_comment": (0.95, 6, 5),
+    "junk_identifier": (0.95, 4, 4),
+    "commented_out_code": (0.95, 3, 4),
+    "suppression_without_reason": (0.95, 4, 6),
 }
 
 
