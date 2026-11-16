@@ -428,9 +428,11 @@ def _documented(body: Node, ctx: Ctx, min_chars: int = 3) -> bool:
     a comment is the opposite of silence. The marker alone does not count: an
     empty `//` is silence with punctuation.
     """
-    for child in body.named_children:
-        if not _is_comment(child):
-            continue
+    candidates = [n for n in walk(body) if _is_comment(n)]
+    # Python attaches a leading comment to the `except_clause`, not its block.
+    if body.parent is not None and body.parent.type == "except_clause":
+        candidates += [c for c in body.parent.named_children if _is_comment(c)]
+    for child in candidates:
         text = _COMMENT_MARK.sub("", ctx.text(child)).strip().rstrip("*/").strip()
         if len(text) >= min_chars:
             return True

@@ -752,6 +752,22 @@
    "source": "#[derive(Debug, Clone, PartialEq)]\npub struct Settings {\n    pub retries: u8,\n}\n",
    "expect": "clean",
    "note": ""
+  },
+  {
+   "id": "sw-py-documented-pass",
+   "rule": "swallowed_error",
+   "lang": "python",
+   "source": "def poll(client):\n    try:\n        return client.read()\n    except TimeoutError:\n        # A timeout is the normal end of a long-poll.\n        pass\n",
+   "expect": "clean",
+   "note": "tree-sitter attaches the comment to except_clause, not the block"
+  },
+  {
+   "id": "ee-ts-trailing-reason",
+   "rule": "error_to_empty_success",
+   "lang": "ts",
+   "source": "function decode(path: string) {\n  let decoded: string\n  try {\n    decoded = decodeURIComponent(path)\n  } catch {\n    return null // Invalid URL encoding\n  }\n  return decoded\n}\n",
+   "expect": "clean",
+   "note": "the trailing comment is a child of the return statement"
   }
  ]
 }
