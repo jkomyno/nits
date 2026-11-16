@@ -162,6 +162,85 @@ def test_elision_is_reported_with_plural_handlers():
 
 
 # --------------------------------------------------------------------------- #
+# Rust: no exceptions, so the same failures have different spellings
+# --------------------------------------------------------------------------- #
+
+def test_rust_let_underscore_drops_a_result():
+    assert "swallowed_error" in rules_fired("fn f(m: M) {\n    let _ = send(m);\n}\n", "rust")
+
+
+def test_rust_dot_ok_discards_the_error():
+    assert "swallowed_error" in rules_fired("fn f(r: R) {\n    r.ok();\n}\n", "rust")
+
+
+def test_rust_dot_ok_that_is_used_is_fine():
+    src = "fn f(r: R) {\n    if r.ok().is_none() {\n        return;\n    }\n}\n"
+    assert "swallowed_error" not in rules_fired(src, "rust")
+
+
+def test_rust_catch_all_arm_is_not_an_error_swallow():
+    """`_ => {}` ignores remaining variants; that is what `_` is for."""
+    src = "fn f(r: R) -> i32 {\n    match r {\n        Ok(v) => v,\n        _ => {}\n    }\n}\n"
+    assert "swallowed_error" not in rules_fired(src, "rust")
+
+
+def test_rust_error_arm_that_does_nothing_is_reported():
+    src = "fn f(r: R) -> i32 {\n    match r {\n        Ok(v) => v,\n        Err(_) => {}\n    }\n}\n"
+    assert "swallowed_error" in rules_fired(src, "rust")
+
+
+def test_rust_err_arm_returning_an_empty_container():
+    src = (
+        "fn f(r: R) -> Vec<u8> {\n    match r {\n"
+        "        Ok(v) => v,\n        Err(e) => Vec::new()\n    }\n}\n"
+    )
+    assert "error_to_empty_success" in rules_fired(src, "rust")
+
+
+def test_rust_env_fallback_defaults():
+    bad = 'fn f() {\n    let a = std::env::var("DATABASE_URL").unwrap_or("localhost".into());\n}\n'
+    ok = 'fn f() {\n    let a = env::var("AWS_REGION").unwrap_or("eu-west-1".into());\n}\n'
+    assert "config_fallback" in rules_fired(bad, "rust")
+    assert "config_fallback" not in rules_fired(ok, "rust")
+
+
+def test_rust_inner_attribute_is_crate_wide():
+    assert "suppression_without_reason" in rules_fired("#![allow(dead_code)]\nfn f() {}\n", "rust")
+    assert "suppression_without_reason" not in rules_fired(
+        "#[allow(dead_code)]\nfn f() {}\n", "rust"
+    )
+
+
+def test_rust_else_if_chain_is_not_nesting():
+    src = (
+        "fn f(x: i32) -> i32 {\n    if x == 1 {\n        1\n    } else if x == 2 {\n"
+        "        2\n    } else if x == 3 {\n        3\n    } else if x == 4 {\n"
+        "        4\n    } else {\n        0\n    }\n}\n"
+    )
+    assert "deep_nesting" not in rules_fired(src, "rust")
+
+
+def test_temp_names_for_real_temp_files_are_accurate_names():
+    src = 'fn f() {\n    let tmp = tempfile::tempdir().expect("tempdir");\n    use_it(tmp);\n}\n'
+    assert "junk_identifier" not in rules_fired(src, "rust")
+
+
+# --------------------------------------------------------------------------- #
+# Precision is per language
+# --------------------------------------------------------------------------- #
+
+def test_rust_swallow_spelling_is_measured_weaker_than_typescript():
+    """The `let _ =` idiom discards Results by design often enough to matter."""
+    assert nits.precision_of("swallowed_error", "rust") < 0.80
+    assert nits.precision_of("swallowed_error", "ts") >= 0.80
+
+
+def test_rust_narrator_is_measured_stronger_than_typescript():
+    """Rust comments its own actions; TypeScript type files attract labels."""
+    assert nits.precision_of("narrator_comment", "rust") >= 0.80
+
+
+# --------------------------------------------------------------------------- #
 # API surface
 # --------------------------------------------------------------------------- #
 

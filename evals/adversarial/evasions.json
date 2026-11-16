@@ -96,6 +96,22 @@
    "source": "// ... rest of the handlers are unchanged\nexport const handler = 1;\n",
    "expect": "flag",
    "note": ""
+  },
+  {
+   "id": "rev-boxed-default",
+   "rule": "config_fallback",
+   "lang": "rust",
+   "source": "fn f() {\n    let d = std::env::var(\"CACHE_DIR\").unwrap_or_else(|_| \"changeme\".to_string());\n}\n",
+   "expect": "flag",
+   "note": "default hidden inside a closure"
+  },
+  {
+   "id": "rev-match-block-arm",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "fn f(r: Res) {\n    match r {\n        Ok(v) => go(v),\n        Err(_) => {\n        }\n    }\n}\n",
+   "expect": "flag",
+   "note": "multi-line empty arm"
   }
  ]
 }

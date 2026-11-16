@@ -520,6 +520,238 @@
    "source": "x = 1  # type: ignore\n",
    "expect": "flag",
    "note": "bare type: ignore hides every type error on the line"
+  },
+  {
+   "id": "rf-env-localhost",
+   "rule": "config_fallback",
+   "lang": "rust",
+   "source": "fn connect() {\n    let url = std::env::var(\"DATABASE_URL\").unwrap_or(\"localhost\".into());\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rf-env-secret-empty",
+   "rule": "config_fallback",
+   "lang": "rust",
+   "source": "fn sign() {\n    let key = env::var(\"SIGNING_KEY\").unwrap_or_default();\n}\n",
+   "expect": "flag",
+   "note": "the type default for a secret is the empty string"
+  },
+  {
+   "id": "rf-env-legit",
+   "rule": "config_fallback",
+   "lang": "rust",
+   "source": "fn region() {\n    let region = env::var(\"AWS_REGION\").unwrap_or(\"eu-west-1\".into());\n}\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "rf-env-required",
+   "rule": "config_fallback",
+   "lang": "rust",
+   "source": "fn token() {\n    let token = env::var(\"TOKEN\").expect(\"TOKEN must be set\");\n}\n",
+   "expect": "clean",
+   "note": "fail-fast is the correct shape"
+  },
+  {
+   "id": "rs-let-underscore",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "fn send_all(msgs: Vec<Msg>) {\n    for m in msgs {\n        let _ = send(m);\n    }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rs-dot-ok",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "fn flush(r: Res) {\n    r.ok();\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rs-empty-arm",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "fn value(r: Res) -> i32 {\n    match r {\n        Ok(v) => v,\n        Err(_) => {}\n    }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rs-empty-if-let",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "fn check(r: Res) {\n    if let Err(e) = r {}\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rs-documented-arm",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "fn value(r: Res) -> i32 {\n    match r {\n        Ok(v) => v,\n        Err(_) => {\n            // Absent is the same as empty for this counter.\n        }\n    }\n}\n",
+   "expect": "clean",
+   "note": "a documented ignore is not silence"
+  },
+  {
+   "id": "rs-let-underscore-literal",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "fn f() {\n    let _ = 5;\n}\n",
+   "expect": "clean",
+   "note": "nothing is being dropped"
+  },
+  {
+   "id": "rse-empty-vec",
+   "rule": "error_to_empty_success",
+   "lang": "rust",
+   "source": "fn entries(r: Res) -> Vec<u8> {\n    match r {\n        Ok(v) => v,\n        Err(e) => Vec::new()\n    }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rse-default",
+   "rule": "error_to_empty_success",
+   "lang": "rust",
+   "source": "fn cfg(r: Res) -> Config {\n    match r {\n        Ok(v) => v,\n        Err(_) => Default::default()\n    }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rse-tagged",
+   "rule": "error_to_empty_success",
+   "lang": "rust",
+   "source": "fn entries(r: Res) -> Out {\n    match r {\n        Ok(v) => Ok(v),\n        Err(e) => Err(e)\n    }\n}\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "rdn-five",
+   "rule": "deep_nesting",
+   "lang": "rust",
+   "source": "fn f(x: i32) {\n    if x == 1 {\n        if x == 2 {\n            if x == 3 {\n                if x == 4 {\n                    if x == 5 {\n                        go();\n                    }\n                }\n            }\n        }\n    }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rdn-elseif",
+   "rule": "deep_nesting",
+   "lang": "rust",
+   "source": "fn f(x: i32) -> i32 {\n    if x == 1 {\n        1\n    } else if x == 2 {\n        2\n    } else if x == 3 {\n        3\n    } else if x == 4 {\n        4\n    } else if x == 5 {\n        5\n    } else {\n        0\n    }\n}\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "rdn-closure",
+   "rule": "deep_nesting",
+   "lang": "rust",
+   "source": "fn outer(x: i32) {\n    if x == 1 {\n        let inner = |y: i32| {\n            if y == 1 {\n                if y == 2 {\n                    if y == 3 {\n                        go();\n                    }\n                }\n            }\n        };\n        inner(x);\n    }\n}\n",
+   "expect": "clean",
+   "note": "a closure owns its own depth"
+  },
+  {
+   "id": "rn-return-total",
+   "rule": "narrator_comment",
+   "lang": "rust",
+   "source": "fn sum(a: i32, b: i32) -> i32 {\n    let total = a + b;\n    // Return the total\n    return total;\n}\n",
+   "expect": "flag",
+   "note": "comment restates the name the next line returns"
+  },
+  {
+   "id": "rn-safety",
+   "rule": "narrator_comment",
+   "lang": "rust",
+   "source": "fn f(p: *const u8) {\n    // SAFETY: the pointer came from Box::into_raw above.\n    unsafe { drop(Box::from_raw(p as *mut u8)) }\n}\n",
+   "expect": "clean",
+   "note": "a justification comment is the good kind"
+  },
+  {
+   "id": "rn-doc",
+   "rule": "narrator_comment",
+   "lang": "rust",
+   "source": "/// Number of tools synced.\npub struct Counter {\n    pub tools_synced: usize,\n}\n",
+   "expect": "clean",
+   "note": "rustdoc documents, it does not narrate"
+  },
+  {
+   "id": "rj-tmp",
+   "rule": "junk_identifier",
+   "lang": "rust",
+   "source": "fn f() {\n    let tmp = compute();\n    use_it(tmp);\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rj-descriptive",
+   "rule": "junk_identifier",
+   "lang": "rust",
+   "source": "fn f() {\n    let temporary_redirect_target = compute();\n    use_it(temporary_redirect_target);\n}\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "rsupp-inner",
+   "rule": "suppression_without_reason",
+   "lang": "rust",
+   "source": "#![allow(dead_code)]\n\nfn f() {}\n",
+   "expect": "flag",
+   "note": "crate-wide, hides lints everywhere"
+  },
+  {
+   "id": "rsupp-item",
+   "rule": "suppression_without_reason",
+   "lang": "rust",
+   "source": "#[allow(dead_code)]\nfn f() {}\n",
+   "expect": "clean",
+   "note": "scoped to the item that needs it"
+  },
+  {
+   "id": "rel-elision",
+   "rule": "elision_comment",
+   "lang": "rust",
+   "source": "// ... rest of the implementation\nfn f() {}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rc-let",
+   "rule": "commented_out_code",
+   "lang": "rust",
+   "source": "// let x = compute();\nfn f() {}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "rc-prose",
+   "rule": "commented_out_code",
+   "lang": "rust",
+   "source": "// Returns the user id for a session.\nfn f() {}\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "rw-path-op",
+   "rule": null,
+   "lang": "rust",
+   "source": "pub fn config_dir() -> Result<PathBuf> {\n    dirs::config_dir().ok_or(Error::NoConfigDir)\n}\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "rw-long-name",
+   "rule": null,
+   "lang": "rust",
+   "source": "pub fn parse_package_manager_field(raw: &str) -> Option<String> {\n    raw.split('=').nth(1).map(str::to_owned)\n}\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "rw-derive",
+   "rule": null,
+   "lang": "rust",
+   "source": "#[derive(Debug, Clone, PartialEq)]\npub struct Settings {\n    pub retries: u8,\n}\n",
+   "expect": "clean",
+   "note": ""
   }
  ]
 }
