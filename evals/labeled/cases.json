@@ -792,6 +792,14 @@
    "source": "/// <reference types=\"vite/client\" />\nimport { createRoot } from \"react-dom/client\"\n",
    "expect": "clean",
    "note": "compiler directive"
+  },
+  {
+   "id": "nc-ts-box-header",
+   "rule": "narrator_comment",
+   "lang": "ts",
+   "source": "// ── Service layers ──────────────────────\n\nconst MainLayer = Layer.mergeAll(OutputService.layer, UpdateCheckService.layer)\n",
+   "expect": "clean",
+   "note": "section header drawn with box characters"
   }
  ]
 }

@@ -829,9 +829,12 @@ def _is_doc_or_directive(text: str) -> bool:
     return bool(_DOC_OR_DIRECTIVE.search(text)) or "\n" in text
 
 
+_BOX_RULE = re.compile(r"[─━═╌┄]{3,}")
+
+
 def _is_section_rule(text: str) -> bool:
     """`// --- Session schemas ---` is a structural header, not narration."""
-    return bool(_SECTION_RULE.search(text.strip()))
+    return bool(_SECTION_RULE.search(text.strip()) or _BOX_RULE.search(text))
 
 
 def rule_narrator_comment(ctx: Ctx) -> Iterator[Finding]:
