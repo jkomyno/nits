@@ -87,7 +87,7 @@ def _skip_dir(name: str) -> bool:
     return name.startswith(("dist-", "dist_", "build-", "build_"))
 
 
-_GENERATED = re.compile(r"\.min\.|-min\.|\.bundle\.|^worker-configuration\.d\.ts$")
+_GENERATED = re.compile(r"\.min\.|-min\.|\.bundle\.|\.gen\.|\.generated\.|^worker-configuration\.d\.ts$")
 
 
 def _iter_files(root: Path, max_lines: int = 20000):
