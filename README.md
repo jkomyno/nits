@@ -71,7 +71,7 @@ The alternative I measured against is a byte-grid model with hand-tuned threshol
 
 | | byte-grid tool at `423c7e1` | `nits` |
 |---|---|---|
-| Files flagged on `ComposioHQ/composio` `ts/` | 50% of 298 | not measured |
+| Files flagged, on the external TypeScript SDK below | 50% of 298 | not measured |
 | Findings per 100 lines, same tree | 2.36 | 0.29 |
 | 1-space re-indent of a 5-deep pyramid | nesting disappears | unchanged |
 | `except Exception as error: _ = error` | not reported | reported |
@@ -111,18 +111,21 @@ These repositories were never read while writing a rule. The table reports findi
 
 | Repository | Language | Files | Lines | Findings | Per 100 lines |
 |---|---|---|---|---|---|
-| `ComposioHQ/composio` `ts/` | TS | 400 | 85,510 | 244 | 0.29 |
+| [`jkomyno/esmwell` at `0fe5d07`](https://github.com/jkomyno/esmwell/tree/0fe5d07af718736e5a3cd59b7fd839c268789015) | Rust/Py | 316 | 52,193 | 23 | 0.04 |
+| [`OrchestratorInc/agent-orchestrator` at `4505071`](https://github.com/OrchestratorInc/agent-orchestrator/tree/450507193ee3988ded574547132c749256ab8454) | TS | 174 | 42,148 | 240 | 0.57 |
+| [`jkomyno/uniku` at `66dfbde`](https://github.com/jkomyno/uniku/tree/66dfbdeff0d8a7483beaa98b83c106f6092efb29) | TS | 177 | 22,322 | 24 | 0.11 |
+| TypeScript SDK (external), 400-file sample | TS | 400 | 85,510 | 244 | 0.29 |
+| TypeScript monorepo (external) | TS | 275 | 82,648 | 715 | 0.87 |
 | Rust workspace (external) | Rust | 177 | 70,510 | 332 | 0.47 |
 | private monorepo | Rust | 317 | 145,375 | 118 | 0.08 |
 | private CLI | Rust | 56 | 23,022 | 34 | 0.15 |
 | private service | Rust | 27 | 5,449 | 34 | 0.62 |
 | private crate | Rust | 51 | 24,708 | 13 | 0.05 |
-| `instant-distance` | Rust | 10 | 1,980 | 8 | 0.40 |
-| `esmwell` | Rust/Py | 316 | 52,193 | 23 | 0.04 |
-| `agent-orchestrator` | TS | 174 | 42,148 | 240 | 0.57 |
-| `durable-streams` | TS | 275 | 82,648 | 715 | 0.87 |
+| private fork of a Rust crate | Rust | 10 | 1,980 | 8 | 0.40 |
 
-Rows named by role are private or belong to another project.
+Each linked row names the commit that reproduces its file and line counts. Rows named by role are private, or were measured on a working tree that no public commit reproduces.
+
+The `uniku` row comes from the current rules. The older rows came from an earlier version, and re-running today's rules at the linked commits gives slightly different finding counts, for example 236 rather than 240 for `agent-orchestrator`.
 
 `check` and `fp` skip vendored and generated trees such as `node_modules/`, `third_party/`, `site-packages/`, `dist/`, `target/` and test fixtures, plus minified bundles. `diff` scores whatever the diff touches.
 
