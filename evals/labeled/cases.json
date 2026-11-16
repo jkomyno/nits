@@ -816,6 +816,14 @@
    "source": "async function cleanup(dir) {\n  await prepare(dir);\n  await rm(dir, { recursive: true }).catch(() => {});\n}\n",
    "expect": "flag",
    "note": "the statement above is not a reason"
+  },
+  {
+   "id": "rj-named-by-type",
+   "rule": "junk_identifier",
+   "lang": "rust",
+   "source": "pub fn progress(mut self, bar: ProgressBar) -> Self {\n    self.progress = Some(bar);\n    self\n}\n",
+   "expect": "clean",
+   "note": "the name is a word of its type"
   }
  ]
 }

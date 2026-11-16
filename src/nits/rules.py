@@ -1020,6 +1020,16 @@ _TEMP_API = re.compile(
 )
 
 
+def _named_by_its_type(name: Node, ctx: Ctx) -> bool:
+    """`bar: ProgressBar` is named after what it holds."""
+    parent = name.parent
+    declared = parent.child_by_field_name("type") if parent is not None else None
+    if declared is None:
+        return False
+    words = {w.lower() for w in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+", ctx.text(declared))}
+    return ctx.text(name).lower() in words
+
+
 def rule_junk_identifier(ctx: Ctx) -> Iterator[Finding]:
     """Placeholder / graveyard binding names.
 
@@ -1038,6 +1048,8 @@ def rule_junk_identifier(ctx: Ctx) -> Iterator[Finding]:
             if text.lower().startswith(("tmp", "temp")) or "_temp" in text.lower():
                 if name.parent is not None and _TEMP_API.search(ctx.text(name.parent)):
                     continue
+            if _named_by_its_type(name, ctx):
+                continue
             key = (name.start_byte, name.end_byte)
             if key in seen:
                 continue

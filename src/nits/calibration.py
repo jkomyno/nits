@@ -15,7 +15,7 @@ MEASURED: dict[str, tuple[float, int, int]] = {
     "elision_comment": (0.95, 6, 3),
     "deep_nesting": (0.95, 4, 6),
     "narrator_comment": (0.95, 6, 6),
-    "junk_identifier": (0.95, 4, 4),
+    "junk_identifier": (0.95, 4, 5),
     "commented_out_code": (0.95, 3, 6),
     "suppression_without_reason": (0.95, 4, 6),
 }
