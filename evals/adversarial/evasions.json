@@ -1,0 +1,101 @@
+{
+ "version": 1,
+ "cases": [
+  {
+   "id": "ev-tight-indent",
+   "rule": "deep_nesting",
+   "lang": "python",
+   "source": "def f(x):\n if x:\n  if x:\n   if x:\n    if x:\n     if x:\n      return 1\n",
+   "expect": "flag",
+   "note": "1-space indent defeated the comparator"
+  },
+  {
+   "id": "ev-except-alias",
+   "rule": "swallowed_error",
+   "lang": "python",
+   "source": "def f():\n    try:\n        return parse()\n    except Exception as error:\n        _ = error\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-except-bare-return",
+   "rule": "error_to_empty_success",
+   "lang": "python",
+   "source": "def f():\n    try:\n        return parse()\n    except Exception:\n        return\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-except-return-none",
+   "rule": "error_to_empty_success",
+   "lang": "python",
+   "source": "def f():\n    try:\n        return parse()\n    except Exception:\n        return None\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-catch-void",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "function f() {\n  try { parse(); } catch (err) { void err; }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-catch-empty-object",
+   "rule": "error_to_empty_success",
+   "lang": "ts",
+   "source": "function f() {\n  try { return parse(); } catch (err) { return {}; }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-promise-catch",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "await response.arrayBuffer().catch(() => {});\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-env-nullish",
+   "rule": "config_fallback",
+   "lang": "ts",
+   "source": "const token = process.env.TOKEN ?? \"changeme\";\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-env-empty-secret",
+   "rule": "config_fallback",
+   "lang": "python",
+   "source": "import os\nsecret = os.getenv(\"SIGNING_KEY\", \"\")\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-loop-comment",
+   "rule": "narrator_comment",
+   "lang": "python",
+   "source": "def f(items):\n    # Loop over the items\n    for item in items:\n        print(item)\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-return-comment",
+   "rule": "narrator_comment",
+   "lang": "ts",
+   "source": "function f(total) {\n  // Return the total\n  return total;\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ev-elision",
+   "rule": "elision_comment",
+   "lang": "ts",
+   "source": "// ... rest of the handlers are unchanged\nexport const handler = 1;\n",
+   "expect": "flag",
+   "note": ""
+  }
+ ]
+}

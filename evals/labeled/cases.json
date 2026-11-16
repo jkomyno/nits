@@ -1,0 +1,525 @@
+{
+ "version": 1,
+ "cases": [
+  {
+   "id": "cf-js-localhost",
+   "rule": "config_fallback",
+   "lang": "ts",
+   "source": "const dbUrl = process.env.DATABASE_URL || 'localhost';\nconnect(dbUrl);\n",
+   "expect": "flag",
+   "note": "dev default ships to prod"
+  },
+  {
+   "id": "cf-py-empty-secret",
+   "rule": "config_fallback",
+   "lang": "python",
+   "source": "import os\napi_key = os.getenv(\"API_SECRET\", \"\")\n",
+   "expect": "flag",
+   "note": "empty string as secret default"
+  },
+  {
+   "id": "cf-js-changeme",
+   "rule": "config_fallback",
+   "lang": "ts",
+   "source": "const token = process.env.API_TOKEN ?? \"changeme\";\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "cf-py-or-zero",
+   "rule": "config_fallback",
+   "lang": "python",
+   "source": "import os\nhost = os.environ.get(\"HOST\") or \"0.0.0.0\"\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "cf-js-legit-region",
+   "rule": "config_fallback",
+   "lang": "ts",
+   "source": "const region = process.env.AWS_REGION || \"eu-west-1\";\n",
+   "expect": "clean",
+   "note": "a real default is not a fallback"
+  },
+  {
+   "id": "cf-py-port",
+   "rule": "config_fallback",
+   "lang": "python",
+   "source": "import os\nport = int(os.getenv(\"PORT\", \"8080\"))\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "cf-js-no-fallback",
+   "rule": "config_fallback",
+   "lang": "ts",
+   "source": "const key = process.env.API_TOKEN;\n",
+   "expect": "clean",
+   "note": "fail-fast lives in requireEnv"
+  },
+  {
+   "id": "cf-py-production",
+   "rule": "config_fallback",
+   "lang": "python",
+   "source": "import os\nmode = os.getenv(\"MODE\", \"production\")\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "sw-py-pass",
+   "rule": "swallowed_error",
+   "lang": "python",
+   "source": "def f(x):\n    try:\n        return parse(x)\n    except ValueError:\n        pass\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "sw-py-underscore",
+   "rule": "swallowed_error",
+   "lang": "python",
+   "source": "def f(x):\n    try:\n        return parse(x)\n    except ValueError as error:\n        _ = error\n",
+   "expect": "flag",
+   "note": "defeats name/indent heuristics; same AST shape as pass"
+  },
+  {
+   "id": "sw-js-void",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "function f(x) {\n  try {\n    parse(x);\n  } catch (err) {\n    void err;\n  }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "sw-js-empty",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "function f(x) {\n  try {\n    parse(x);\n  } catch {\n  }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "sw-js-promise",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "await response.arrayBuffer().catch(() => {});\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "sw-js-handled",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "function f(x) {\n  try {\n    parse(x);\n  } catch (err) {\n    console.error(err);\n    throw err;\n  }\n}\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "sw-py-logged",
+   "rule": "swallowed_error",
+   "lang": "python",
+   "source": "def f(x):\n    try:\n        return parse(x)\n    except ValueError:\n        logger.exception(\"parse failed\")\n        raise\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "sw-py-continue",
+   "rule": "swallowed_error",
+   "lang": "python",
+   "source": "def f(items):\n    for item in items:\n        try:\n            yield parse(item)\n        except ValueError:\n            continue\n",
+   "expect": "clean",
+   "note": "deliberate under-flag: skipping a bad item is legitimate"
+  },
+  {
+   "id": "sw-js-reported",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "parse(x).catch((err) => { reportFailure(err); });\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "es-py-none",
+   "rule": "error_to_empty_success",
+   "lang": "python",
+   "source": "def f():\n    try:\n        return load()\n    except OSError:\n        return None\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "es-py-dict",
+   "rule": "error_to_empty_success",
+   "lang": "python",
+   "source": "def f():\n    try:\n        return load()\n    except OSError:\n        return {}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "es-js-object",
+   "rule": "error_to_empty_success",
+   "lang": "ts",
+   "source": "function f() {\n  try {\n    return load();\n  } catch (e) {\n    return {};\n  }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "es-js-array",
+   "rule": "error_to_empty_success",
+   "lang": "ts",
+   "source": "function f() {\n  try {\n    return load();\n  } catch (e) {\n    return [];\n  }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "es-js-tagged",
+   "rule": "error_to_empty_success",
+   "lang": "ts",
+   "source": "function f() {\n  try {\n    return load();\n  } catch (e) {\n    return { error: String(e) };\n  }\n}\n",
+   "expect": "clean",
+   "note": "caller can distinguish failure"
+  },
+  {
+   "id": "es-py-err-value",
+   "rule": "error_to_empty_success",
+   "lang": "python",
+   "source": "def f():\n    try:\n        return load()\n    except OSError as exc:\n        return Err(exc)\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "el-js-rest",
+   "rule": "elision_comment",
+   "lang": "ts",
+   "source": "// ... rest of the implementation\nfunction f() {}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "el-py-todo",
+   "rule": "elision_comment",
+   "lang": "python",
+   "source": "# TODO: implement retries\ndef f():\n    return 1\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "el-js-omitted",
+   "rule": "elision_comment",
+   "lang": "ts",
+   "source": "/* implementation omitted for brevity */\nfunction f() {}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "el-py-dots",
+   "rule": "elision_comment",
+   "lang": "python",
+   "source": "def f():\n    return 1\n    # ...\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "el-js-users",
+   "rule": "elision_comment",
+   "lang": "ts",
+   "source": "// Existing users are unaffected by the new flag.\nexport const x = 1;\n",
+   "expect": "clean",
+   "note": "'existing users' is not an elision"
+  },
+  {
+   "id": "el-py-brevity",
+   "rule": "elision_comment",
+   "lang": "python",
+   "source": "# Brevity is enforced by the formatter.\nx = 1\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "el-js-restores",
+   "rule": "elision_comment",
+   "lang": "ts",
+   "source": "// Restores the previous snapshot on failure.\nrollback();\n",
+   "expect": "clean",
+   "note": "'restores' must not match 'rest of'"
+  },
+  {
+   "id": "dn-py-five",
+   "rule": "deep_nesting",
+   "lang": "python",
+   "source": "def f(x):\n    if x:\n        if x:\n            if x:\n                if x:\n                    if x:\n                        return 1\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "dn-js-five",
+   "rule": "deep_nesting",
+   "lang": "ts",
+   "source": "function f(x) {\n  if (x === 1) {\n    if (x === 2) {\n      if (x === 3) {\n        if (x === 4) {\n          if (x === 5) {\n            return 1;\n          }\n        }\n      }\n    }\n  }\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "dn-py-four",
+   "rule": "deep_nesting",
+   "lang": "python",
+   "source": "def f(x):\n    if x:\n        if x:\n            if x:\n                if x:\n                    return 1\n",
+   "expect": "clean",
+   "note": "threshold is 5, matching eslint max-depth"
+  },
+  {
+   "id": "dn-js-elseif",
+   "rule": "deep_nesting",
+   "lang": "ts",
+   "source": "function f(x) {\n  if (x === 1) {\n    return 1;\n  } else if (x === 2) {\n    return 2;\n  } else if (x === 3) {\n    return 3;\n  } else if (x === 4) {\n    return 4;\n  } else if (x === 5) {\n    return 5;\n  } else {\n    return 0;\n  }\n}\n",
+   "expect": "clean",
+   "note": "else-if is a chain, not nesting"
+  },
+  {
+   "id": "dn-js-extracted",
+   "rule": "deep_nesting",
+   "lang": "ts",
+   "source": "function outer(x) {\n  if (x) {\n    if (x) {\n      const inner = () => {\n        if (x) {\n          if (x) {\n            if (x) {\n              return 1;\n            }\n          }\n        }\n      };\n      return inner;\n    }\n  }\n}\n",
+   "expect": "clean",
+   "note": "a nested function owns its own depth"
+  },
+  {
+   "id": "nc-js-return-total",
+   "rule": "narrator_comment",
+   "lang": "ts",
+   "source": "function f(total) {\n  // Return the total\n  return total;\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "nc-py-loop-items",
+   "rule": "narrator_comment",
+   "lang": "python",
+   "source": "def f(items):\n    # Loop over the items\n    for item in items:\n        print(item)\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "nc-js-create-record",
+   "rule": "narrator_comment",
+   "lang": "ts",
+   "source": "function f(dto) {\n  // Create the user record\n  const userRecord = createUserRecord(dto);\n  return userRecord;\n}\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "nc-js-upstream-bug",
+   "rule": "narrator_comment",
+   "lang": "ts",
+   "source": "function f() {\n  // Work around upstream bug 4412, fixed in v3.\n  return retryOnce();\n}\n",
+   "expect": "clean",
+   "note": "a why-comment shares no names"
+  },
+  {
+   "id": "nc-py-api-cap",
+   "rule": "narrator_comment",
+   "lang": "python",
+   "source": "def f(limit):\n    # The upstream API caps this at 100.\n    return min(limit, 100)\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "nc-js-single-word",
+   "rule": "narrator_comment",
+   "lang": "ts",
+   "source": "function f() {\n  // connection\n  const connection = open();\n  return connection;\n}\n",
+   "expect": "clean",
+   "note": "one overlapping word is not evidence"
+  },
+  {
+   "id": "ji-js-tmp",
+   "rule": "junk_identifier",
+   "lang": "ts",
+   "source": "const tmp = compute();\nuse(tmp);\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ji-py-temp",
+   "rule": "junk_identifier",
+   "lang": "python",
+   "source": "temp = compute()\nuse(temp)\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ji-js-old",
+   "rule": "junk_identifier",
+   "lang": "ts",
+   "source": "const userData_old = user;\nuse(userData_old);\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "ji-js-descriptive",
+   "rule": "junk_identifier",
+   "lang": "ts",
+   "source": "const temporaryRedirectUrl = compute();\nuse(temporaryRedirectUrl);\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "ji-js-long-name",
+   "rule": "junk_identifier",
+   "lang": "ts",
+   "source": "const canReusePreviousArticle = previousGuideMatchesSource;\nuse(canReusePreviousArticle);\n",
+   "expect": "clean",
+   "note": "the inversion that broke the comparator"
+  },
+  {
+   "id": "ji-py-data-path",
+   "rule": "junk_identifier",
+   "lang": "python",
+   "source": "data_path = compute()\nuse(data_path)\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "cc-js-const",
+   "rule": "commented_out_code",
+   "lang": "ts",
+   "source": "// const user = getUser(id);\nexport const x = 1;\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "cc-py-assign",
+   "rule": "commented_out_code",
+   "lang": "python",
+   "source": "# result = compute_total(items)\nx = 1\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "cc-js-prose",
+   "rule": "commented_out_code",
+   "lang": "ts",
+   "source": "// Returns the user id for a session.\nexport const x = 1;\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "cc-py-prose",
+   "rule": "commented_out_code",
+   "lang": "python",
+   "source": "# The cache is keyed by session id.\nx = 1\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "cc-js-see",
+   "rule": "commented_out_code",
+   "lang": "ts",
+   "source": "// see getUser for details\nexport const x = 1;\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "su-js-bare",
+   "rule": "suppression_without_reason",
+   "lang": "ts",
+   "source": "// eslint-disable-next-line\nconsole.log(x);\n",
+   "expect": "flag",
+   "note": "unscoped: silences every rule on the line"
+  },
+  {
+   "id": "su-py-bare",
+   "rule": "suppression_without_reason",
+   "lang": "python",
+   "source": "x = 1  # noqa\n",
+   "expect": "flag",
+   "note": ""
+  },
+  {
+   "id": "su-js-reason",
+   "rule": "suppression_without_reason",
+   "lang": "ts",
+   "source": "// eslint-disable-next-line no-console -- CLI output is the product\nconsole.log(x);\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "su-py-reason",
+   "rule": "suppression_without_reason",
+   "lang": "python",
+   "source": "x = 1  # noqa: E501  # long fixture line\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "su-js-expect-error",
+   "rule": "suppression_without_reason",
+   "lang": "ts",
+   "source": "// @ts-expect-error -- the SDK types are wrong here\nconst x: number = sdk.value;\n",
+   "expect": "clean",
+   "note": "@ts-expect-error asserts an error exists"
+  },
+  {
+   "id": "wc-ts-descriptive-type",
+   "rule": null,
+   "lang": "ts",
+   "source": "export type ToolRouterSandboxConfig = z.infer<typeof ToolRouterSandboxConfigSchema>;\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "wc-ts-import-long",
+   "rule": null,
+   "lang": "ts",
+   "source": "import { ComposioClientSingleton, ComposioSessionRepository } from 'src/services/composio-clients';\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "wc-ts-decode-name",
+   "rule": null,
+   "lang": "ts",
+   "source": "const decodeChunkedRealtimeEvent = Schema.decodeUnknownOption(ChunkedRealtimeEvent);\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "wc-py-short-name",
+   "rule": null,
+   "lang": "python",
+   "source": "def f(x):\n    return x\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "wc-ts-long-template",
+   "rule": null,
+   "lang": "ts",
+   "source": "const message = `Could not reach the dashboard at ${dashboard.origin}.`;\n",
+   "expect": "clean",
+   "note": ""
+  },
+  {
+   "id": "su-js-scoped",
+   "rule": "suppression_without_reason",
+   "lang": "ts",
+   "source": "// eslint-disable-next-line no-console\nconsole.log(x);\n",
+   "expect": "clean",
+   "note": "naming the rule is the reason"
+  },
+  {
+   "id": "su-py-scoped",
+   "rule": "suppression_without_reason",
+   "lang": "python",
+   "source": "x = 1  # noqa: E501\n",
+   "expect": "clean",
+   "note": "a specific code is scoped, not dangerous"
+  },
+  {
+   "id": "su-py-unscoped",
+   "rule": "suppression_without_reason",
+   "lang": "python",
+   "source": "x = 1  # type: ignore\n",
+   "expect": "flag",
+   "note": "bare type: ignore hides every type error on the line"
+  }
+ ]
+}
