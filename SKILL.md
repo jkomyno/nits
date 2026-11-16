@@ -22,7 +22,7 @@ Two kinds of finding live here, and they need different treatment:
 ## Run it
 
 ```bash
-nits diff --json          # unstaged changes against HEAD
+nits diff --json          # working tree against HEAD, staged or not
 nits diff --staged --json # staged changes
 ```
 
@@ -41,7 +41,7 @@ uv run --project <path-to-nits> nits diff --json
 | `config_fallback` | Remove the dev default or fail fast. Never default a secret to `""`, `localhost`, or `changeme`. In Rust that means `unwrap_or`, not `expect("... must be set")`. |
 | `elision_comment` | Write the code or delete the line. `// ... rest of the implementation` is a truncation artifact, not documentation. |
 | `deep_nesting` | Invert conditions into guard clauses, or extract a helper. Do not re-indent to reduce the count; depth is structural and re-indenting changes nothing. |
-| `narrator_comment` | Delete it only if it restates the line below. If it explains why, keep it and move on — treat 0.68 as "look here". |
+| `narrator_comment` | Delete it only if it restates the line below. If it explains why, keep it and move on — on TypeScript treat it (0.64) as "look here". |
 | `junk_identifier` | Rename to what the value holds. Do not rename a clear name to a shorter one to satisfy anything. |
 | `commented_out_code` | Delete it. Git remembers. |
 | `suppression_without_reason` | Name the specific rule or error code, or fix the cause. An unscoped suppression hides errors nobody has read. In Rust only `#![allow(...)]` is reported; item-scoped `#[allow(...)]` already names its lint. |
@@ -52,7 +52,7 @@ uv run --project <path-to-nits> nits diff --json
   lines are not yours to fix in this turn.
 - **Never add a comment to silence a finding.** That converts a bug into a
   documented bug and makes the next review harder.
-- **Never raise `--threshold` or pass `--min-precision` to force a clean exit.**
+- **Never lower `--gate` or pass `--min-precision` to force a clean exit.**
 - **In Rust, a name that matches the value is not slop.** `let tmp = tempfile::tempdir()`
   is accurately named, and the rule already exempts it.
   If a finding is a false positive, say so and cite the rule and line.
