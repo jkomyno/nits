@@ -15,10 +15,10 @@ Two kinds of finding live here, and they need different treatment:
 
 - **High precision (>= 0.90):** fix them. The pattern is nearly always wrong.
 - **Below 0.80 in that language** — every finding prints its precision as `pNN`.
-  Today that covers `swallowed_error` on Python and Rust, `narrator_comment`,
-  `junk_identifier` and `elision_comment` on TypeScript, `junk_identifier` and
-  `error_to_empty_success` on Rust, and `commented_out_code` (`nits rules` has
-  the current matrix). Use these as a prompt to read the line, nothing more.
+  Today that covers `swallowed_error` on Python and Rust, `narrator_comment` on
+  TypeScript, and `error_to_empty_success` on Rust (`nits rules` has the current
+  matrix). `elision_comment`, `junk_identifier` and `commented_out_code` are
+  below 0.80 in every language and run only with `--all`. Use these as a prompt to read the line, nothing more.
   Do not mechanically delete the comment to make the finding go away; a comment
   that explains *why* is correct and `nits` cannot always tell the difference.
 

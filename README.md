@@ -43,10 +43,10 @@ Advisory is the default because a mandatory gate on a probabilistic signal gets 
 | `config_fallback` | on | 0.95 | 0.95~ | 0.95~ | ts 11/11 | `process.env.X \|\| 'localhost'`, `os.getenv('X', 'changeme')`, `env::var("X").unwrap_or("localhost".into())` |
 | `swallowed_error` | on | 0.83 | **0.71** | **0.48** | ts 30/36, py 12/17, rs 14/29 | a handler body with no effect, `_ = error`, `void err`, `r.ok();`, `let _ = send()`, `Err(_) => {}` |
 | `error_to_empty_success` | on | 0.95 | 0.95 | **0.00** | ts 29/30, py 8/8, rs 0/8, 4/4 unsplit | a handler returning `{}`, `[]` or `None`, `Err(e) => Vec::new()` |
-| `elision_comment` | on | **0.30** | **0.30~** | **0.30~** | ts 3/10 | `// ... rest of the implementation`, `TODO: implement` |
+| `elision_comment` | opt-in | **0.30** | **0.30~** | **0.30~** | ts 3/10 | `// ... rest of the implementation`, `TODO: implement` |
 | `deep_nesting` | on | 0.83 | 0.95 | 0.95 | ts 24/29, py 4/4, rs 11/11 | control nesting of depth 5 or more in one function, counted on the AST |
 | `narrator_comment` | on | **0.59** | 0.95 | 0.82 | ts 41/69, py 6/6, rs 18/22 | a comment restating the statement it precedes |
-| `junk_identifier` | on | **0.47** | **0.62~** | **0.75** | ts 8/17, rs 12/16, 1/1 unsplit | `tmp`, `data1`, `foo`, `_old`, `_backup` |
+| `junk_identifier` | opt-in | **0.47** | **0.62~** | **0.75** | ts 8/17, rs 12/16, 1/1 unsplit | `tmp`, `data1`, `foo`, `_old`, `_backup` |
 | `commented_out_code` | opt-in | **0.41** | **0.57~** | **0.60** | ts 9/22, rs 9/15, 7/7 unsplit | a comment whose body parses as a statement |
 | `suppression_without_reason` | opt-in | 0.95 | 0.95 | 0.95 | ts 2/2, py 1/1, rs 11/11 | a bare `# noqa` or `@ts-ignore`, a crate-wide `#![allow]` |
 
@@ -67,7 +67,7 @@ The cells below 0.80 have causes I can name:
 - `elision_comment`, above.
 - `commented_out_code` (opt-in). Code-shaped lines inside prose comments, such as API translation notes and worked examples, read as dead code. Requiring a whole comment run to be code would drop real cases where one dead line sits under a prose line, so this one is not fixed.
 
-Below-bar cells stay on and keep printing, but they are excluded from `--gate 0.80`, from `--min-precision 0.80`, and from the reward, per language. Four rules on by default have a pooled precision under 0.80: `elision_comment` (0.30), `junk_identifier` (0.62), `narrator_comment` (0.67) and `swallowed_error` (0.68).
+Below-bar cells keep printing, but they are excluded from `--gate 0.80`, from `--min-precision 0.80`, and from the reward, per language. A rule is on by default only if at least one language measures 0.80 or above. `elision_comment` (best cell 0.30) and `junk_identifier` (best cell 0.75) do not, so they run only with `--all`, like `commented_out_code`. `narrator_comment` and `swallowed_error` stay on, although their pooled precision is 0.67 and 0.68, because `narrator_comment` reaches the bar on Python and Rust and `swallowed_error` on TypeScript.
 
 A comment counts as a reason wherever the rules look for one, inside a handler or on the line above a `.catch(() => {})`, `.ok();` or `let _ =`. That is deliberate, and it has a cost: a comment that only narrates, such as `// and clean the FS` above `.ok();`, also silences the finding.
 
@@ -122,23 +122,23 @@ These repositories were never read while writing a rule. The table reports findi
 | Repository | Language | Files | Lines | Findings | Per 100 lines |
 |---|---|---|---|---|---|
 | [`jkomyno/esmwell` at `0fe5d07`](https://github.com/jkomyno/esmwell/tree/0fe5d07af718736e5a3cd59b7fd839c268789015) | TS | 113 | 18,555 | 7 | 0.04 |
-| [`OrchestratorInc/agent-orchestrator` at `4505071`](https://github.com/OrchestratorInc/agent-orchestrator/tree/450507193ee3988ded574547132c749256ab8454) | TS | 174 | 42,148 | 217 | 0.51 |
+| [`OrchestratorInc/agent-orchestrator` at `4505071`](https://github.com/OrchestratorInc/agent-orchestrator/tree/450507193ee3988ded574547132c749256ab8454) | TS | 174 | 42,148 | 214 | 0.51 |
 | [`jkomyno/uniku` at `66dfbde`](https://github.com/jkomyno/uniku/tree/66dfbdeff0d8a7483beaa98b83c106f6092efb29) | TS | 176 | 22,217 | 21 | 0.09 |
-| [`mastra-ai/mastra` at `ff4106b`](https://github.com/mastra-ai/mastra/tree/ff4106b87bef3535162f2d812b6f42a8a9fd1924) | TS | 9,381 | 2,124,326 | 9,385 | 0.44 |
-| [`prisma/prisma` at `17385f2`](https://github.com/prisma/prisma/tree/17385f2d86eefa3783e86d94534168a224806c0a) | TS | 7,109 | 1,281,434 | 537 | 0.04 |
-| [`prisma/prisma-engines` at `d1b3f37`](https://github.com/prisma/prisma-engines/tree/d1b3f377ca835d73fd50954a5e22128b9ebdd6b8) | Rust | 1,646 | 395,404 | 390 | 0.10 |
+| [`mastra-ai/mastra` at `ff4106b`](https://github.com/mastra-ai/mastra/tree/ff4106b87bef3535162f2d812b6f42a8a9fd1924) | TS | 9,381 | 2,124,326 | 9,350 | 0.44 |
+| [`prisma/prisma` at `17385f2`](https://github.com/prisma/prisma/tree/17385f2d86eefa3783e86d94534168a224806c0a) | TS | 7,109 | 1,281,434 | 536 | 0.04 |
+| [`prisma/prisma-engines` at `d1b3f37`](https://github.com/prisma/prisma-engines/tree/d1b3f377ca835d73fd50954a5e22128b9ebdd6b8) | Rust | 1,646 | 395,404 | 387 | 0.10 |
 | [`mvanhorn/last30days-skill` at `ae8c323`](https://github.com/mvanhorn/last30days-skill/tree/ae8c32327f86f516894a2d94edc6127314465708) | Py | 85 | 36,876 | 145 | 0.39 |
-| TypeScript library (external) | TS | 192 | 44,470 | 35 | 0.08 |
+| TypeScript library (external) | TS | 192 | 44,470 | 33 | 0.07 |
 | TypeScript SDK (external), 400-file sample | TS | 400 | 85,510 | 244 | 0.29 |
 | TypeScript monorepo (external) | TS | 275 | 82,648 | 715 | 0.87 |
-| Rust workspace (external) | Rust | 177 | 70,510 | 332 | 0.47 |
+| Rust workspace (external) | Rust | 177 | 70,510 | 295 | 0.42 |
 | private monorepo | Rust | 317 | 145,375 | 118 | 0.08 |
 | private CLI | Rust | 56 | 23,022 | 34 | 0.15 |
 | private service | Rust | 27 | 5,449 | 34 | 0.62 |
 | private crate | Rust | 51 | 24,708 | 13 | 0.05 |
 | private fork of a Rust crate | Rust | 10 | 1,980 | 8 | 0.40 |
 
-The linked rows and the TypeScript library were measured with the current rules at the commit shown, over the whole tree. The other rows named by role are private, or were measured on a working tree that no public commit reproduces, and they come from an earlier version of the rules. The TypeScript SDK row stops at `nits fp`'s default limit of 400 files.
+The linked rows were measured with the current rules at the commit shown, over the whole tree. So were the TypeScript library and the Rust workspace, from the copies their held-out samples were drawn from. The other rows named by role are private, or were measured on a working tree that no public commit reproduces. They come from an earlier version of the rules, which also ran `elision_comment` and `junk_identifier` by default. The TypeScript SDK row stops at `nits fp`'s default limit of 400 files.
 
 `check` and `fp` skip vendored and generated trees such as `node_modules/`, `third_party/`, `site-packages/`, `dist/`, `target/`, `fixtures/`, `__fixtures__/` and `.worktrees/`, plus minified bundles and `*.gen.*` files. `diff` scores whatever the diff touches.
 

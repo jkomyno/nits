@@ -280,5 +280,11 @@ def test_opt_in_rules_stay_out_of_the_default_set():
     assert "commented_out_code" in rules_fired(src, "ts")
 
 
+def test_rules_with_no_cell_at_the_bar_are_opt_in():
+    src = "// ... rest of the implementation\nconst tmp = 1;\n"
+    assert rules_fired_default(src) == []
+    assert {"elision_comment", "junk_identifier"} <= set(rules_fired(src, "ts"))
+
+
 def rules_fired_default(source: str) -> list[str]:
     return sorted({f.rule for f in nits.check_source(source, lang="ts")})
