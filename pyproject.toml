@@ -1,0 +1,24 @@
+[project]
+name = "nits"
+version = "0.1.0"
+description = "Diff-scoped, parser-based code-hygiene checks with published precision"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "tree-sitter>=0.23",
+  "tree-sitter-python>=0.23",
+  "tree-sitter-typescript>=0.23",
+]
+
+[project.scripts]
+nits = "nits.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nits"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
