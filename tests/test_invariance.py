@@ -93,6 +93,21 @@ def test_growth_is_penalised():
     assert grown < flat
 
 
+def test_partial_test_pass_zeroes_the_reward():
+    """A clean, half-broken solution must not outscore a correct, slightly dirty one."""
+    assert reward(CLEAN, lang="python", tests_passed=0.99) == 0.0
+    assert reward(MESSY, lang="python", tests_passed=1.0) > 0.0
+
+
+@pytest.mark.parametrize("pad", [1, 2, 4, 8, 20])
+def test_padding_dirty_code_cannot_buy_score(pad: int):
+    """At 4-5 findings per 100 lines, a few blank lines used to outweigh the penalty."""
+    base = MESSY + "".join(f"x{i} = {i}\n" for i in range(15))
+    flat = reward(base, lang="python", tests_passed=1.0, baseline_source=base)
+    padded = reward(base + "\n" * pad, lang="python", tests_passed=1.0, baseline_source=base)
+    assert padded < flat
+
+
 def test_reward_is_invariant_under_reindentation():
     assert reward(CLEAN, lang="python", tests_passed=1.0) == reward(
         reindent(CLEAN, "python", 2), lang="python", tests_passed=1.0
