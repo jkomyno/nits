@@ -468,6 +468,10 @@ _RUST_DEFAULT_BODIES = re.compile(
 )
 
 
+#: `Err(..)`, not `ErrorType::Unknown(..)`
+_ERR_ARM = re.compile(r"\s*Err\s*\(")
+
+
 def _block_is_empty(block: Node, ctx: Ctx) -> bool:
     named = [c for c in block.named_children if not _is_comment(c)]
     return not named and not _documented(block, ctx)
@@ -508,7 +512,7 @@ def _rust_swallowed(ctx: Ctx) -> Iterator[Finding]:
             if pattern is None or value is None or value.type != "block":
                 continue
             # `_ => {}` ignores the remaining variants, which is what `_` is for.
-            if not ctx.text(pattern).strip().startswith("Err"):
+            if not _ERR_ARM.match(ctx.text(pattern)):
                 continue
             if _block_is_empty(value, ctx):
                 yield _find(
@@ -599,7 +603,7 @@ def _rust_empty_success(ctx: Ctx) -> Iterator[Finding]:
             value = arm.child_by_field_name("value")
             if pattern is None or value is None:
                 continue
-            if not ctx.text(pattern).strip().startswith("Err"):
+            if not _ERR_ARM.match(ctx.text(pattern)):
                 continue
             body = ctx.text(value).strip()
             if value.type == "block":

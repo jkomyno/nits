@@ -11,7 +11,7 @@ from __future__ import annotations
 MEASURED: dict[str, tuple[float, int, int]] = {
     "config_fallback": (0.95, 9, 6),
     "swallowed_error": (0.95, 14, 11),
-    "error_to_empty_success": (0.95, 9, 4),
+    "error_to_empty_success": (0.95, 9, 5),
     "elision_comment": (0.95, 6, 3),
     "deep_nesting": (0.95, 4, 6),
     "narrator_comment": (0.95, 6, 6),
