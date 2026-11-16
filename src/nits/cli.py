@@ -251,7 +251,7 @@ def cmd_fp(args) -> int:
     rng = random.Random(args.seed)
     total_lines = 0
     per_rule: dict[str, int] = {}
-    pool: list[tuple[str, Finding, str]] = []
+    pool: list[tuple[str, Finding, list[str], str]] = []
     for path in files:
         try:
             source = path.read_text(encoding="utf-8", errors="replace")
@@ -265,14 +265,14 @@ def cmd_fp(args) -> int:
             include_opt_in=args.all,
         ):
             per_rule[f.rule] = per_rule.get(f.rule, 0) + 1
-            pool.append((str(path), f, lines))
+            pool.append((str(path), f, lines, lang))
     density = 100 * len(pool) / max(total_lines, 1)
     print(f"files={len(files)} lines={total_lines} findings={len(pool)} density={density:.2f}/100 lines")
     for rule, count in sorted(per_rule.items(), key=lambda kv: -kv[1]):
         print(f"  {rule:<30} {count:>5}  ({100 * count / max(total_lines, 1):.2f}/100)")
     if args.sample:
         print(f"\n{_color(True, C_BOLD, 'sample for adjudication')} (seed {args.seed})")
-        for path, f, lines in rng.sample(pool, min(args.sample, len(pool))):
+        for path, f, lines, lang in rng.sample(pool, min(args.sample, len(pool))):
             src = lines[f.line - 1].strip()[:110] if 0 < f.line <= len(lines) else "?"
             print(f"  {path}:{f.line}  {f.rule}  p={precision_of(f.rule, lang):.2f}")
             print(f"      {src}")
