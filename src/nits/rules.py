@@ -489,6 +489,8 @@ def _rust_swallowed(ctx: Ctx) -> Iterator[Finding]:
                 continue
             if ctx.text(fn.child_by_field_name("field")) != "ok":
                 continue
+            if _explained_above(node, ctx):
+                continue
             yield _find(
                 ctx, "swallowed_error", node,
                 "`.ok()` turns the failure into `None` and drops it — handle it or propagate",
@@ -502,6 +504,8 @@ def _rust_swallowed(ctx: Ctx) -> Iterator[Finding]:
                 continue  # `let _ = f()?;` propagated the error with `?`
             if re.search(r"\.(?:unwrap|expect)\([^()]*\)\s*$", ctx.text(value)):
                 continue  # `.unwrap()` panics on the error; nothing is dropped
+            if _explained_above(node, ctx):
+                continue
             yield _find(
                 ctx, "swallowed_error", node,
                 "`let _ =` drops the result — a failing `Result` becomes silence",
@@ -532,7 +536,10 @@ def _rust_swallowed(ctx: Ctx) -> Iterator[Finding]:
             )
 
 
-_STATEMENT_CONTAINERS = frozenset({"statement_block", "program", "switch_case", "switch_default"})
+_STATEMENT_CONTAINERS = frozenset({
+    "statement_block", "program", "switch_case", "switch_default",
+    "block", "source_file",  # Rust
+})
 
 
 def _explained_above(node: Node, ctx: Ctx) -> bool:

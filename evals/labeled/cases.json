@@ -912,6 +912,22 @@
    "source": "const data1 = await load('users');\nconst data2 = await load('posts');\nmerge(data1, data2);\n",
    "expect": "flag",
    "note": "numbered placeholders, with string literals that do not spell the name"
+  },
+  {
+   "id": "rsw-reason-above",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "async fn reset(conn: &Conn) -> Result<(), Error> {\n    // The table may not exist yet, and we do not care if this fails.\n    conn.raw_cmd(\"DROP TABLE _prisma_migrations\").await.ok();\n    // Parsing must not crash; the result itself is irrelevant here.\n    let _ = parse_schema(DML);\n    Ok(())\n}\n",
+   "expect": "clean",
+   "note": "reason on the line above"
+  },
+  {
+   "id": "rsw-bare-ok",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "async fn reset(conn: &Conn) {\n    let query = drop_query();\n    conn.raw_cmd(&query).await.ok();\n}\n",
+   "expect": "flag",
+   "note": "the line above is code, not a reason"
   }
  ]
 }
