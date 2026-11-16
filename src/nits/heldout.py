@@ -41,9 +41,10 @@ HELDOUT: dict[str, tuple[int, int]] = {
 #   jkomyno/esmwell@0fe5d07af718736e5a3cd59b7fd839c268789015
 #   djc/instant-distance@dc0bc5a2191c3b5c76db4645f25db4d3bf753b96
 #
-# Samples marked "fresh" were drawn with seed 7 after the fixes those samples
-# prompted, from trees never read while writing or fixing a rule, using the
-# rules as of nits 97825ad (swallowed_error on TypeScript: 43ef647):
+# Samples marked "fresh" were drawn with seed 7 after the first round of fixes,
+# from trees not read before, using the rules as of nits 97825ad
+# (swallowed_error on TypeScript: 43ef647). They prompted three more fixes
+# (53614be, ce73485, a8e9d22), so the cells they touch are floors too:
 #   mastra-ai/mastra@ff4106b87bef3535162f2d812b6f42a8a9fd1924
 #   an external TypeScript library
 #   the "Rust workspace (external)" of the README's density table
