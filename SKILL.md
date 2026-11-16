@@ -2,7 +2,7 @@
 name: nits
 description: >-
   Advisory, diff-scoped code-hygiene checks with published per-rule precision.
-  Use when reviewing or finishing a change in Python, TypeScript, or JavaScript,
+  Use when reviewing or finishing a change in Python, TypeScript, JavaScript, or Rust,
   to catch swallowed errors, failure-returned-as-empty, dev-config fallbacks,
   truncation comments ("rest of the implementation"), placeholder names, and
   unscoped lint suppressions. Reports only lines the change touched. Advisory:
@@ -14,7 +14,8 @@ description: >-
 Two kinds of finding live here, and they need different treatment:
 
 - **High precision (>= 0.90):** fix them. The pattern is nearly always wrong.
-- **Low precision (`narrator_comment`, 0.68):** use as a prompt to read the line.
+- **Low precision by language** — `narrator_comment` on TypeScript (0.64) and
+  `swallowed_error` on Rust (0.50) — use as a prompt to read the line, nothing more.
   Do not mechanically delete the comment to make the finding go away; a comment
   that explains *why* is correct and `nits` cannot always tell the difference.
 
@@ -35,15 +36,15 @@ uv run --project <path-to-nits> nits diff --json
 
 | Rule | What to do |
 |---|---|
-| `swallowed_error` | Rethrow, handle, or log-and-propagate. Do **not** add a comment to silence the finding; add behaviour. A documented deliberate ignore is already exempt. |
+| `swallowed_error` | Rethrow, handle, or log-and-propagate. Do **not** add a comment to silence the finding; add behaviour. A documented deliberate ignore is already exempt. In Rust this covers `r.ok();`, `let _ = fallible();`, and `Err(_) => {}`. `_ => {}` is exempt on purpose. |
 | `error_to_empty_success` | Return a distinguishable failure (tagged error, `Result`, throw). Preserve the caller's ability to tell "empty" from "failed". |
-| `config_fallback` | Remove the dev default or fail fast. Never default a secret to `""`, `localhost`, or `changeme`. |
+| `config_fallback` | Remove the dev default or fail fast. Never default a secret to `""`, `localhost`, or `changeme`. In Rust that means `unwrap_or`, not `expect("... must be set")`. |
 | `elision_comment` | Write the code or delete the line. `// ... rest of the implementation` is a truncation artifact, not documentation. |
 | `deep_nesting` | Invert conditions into guard clauses, or extract a helper. Do not re-indent to reduce the count; depth is structural and re-indenting changes nothing. |
 | `narrator_comment` | Delete it only if it restates the line below. If it explains why, keep it and move on — treat 0.68 as "look here". |
 | `junk_identifier` | Rename to what the value holds. Do not rename a clear name to a shorter one to satisfy anything. |
 | `commented_out_code` | Delete it. Git remembers. |
-| `suppression_without_reason` | Name the specific rule or error code, or fix the cause. An unscoped suppression hides errors nobody has read. |
+| `suppression_without_reason` | Name the specific rule or error code, or fix the cause. An unscoped suppression hides errors nobody has read. In Rust only `#![allow(...)]` is reported; item-scoped `#[allow(...)]` already names its lint. |
 
 ## Rules of engagement
 
@@ -52,6 +53,8 @@ uv run --project <path-to-nits> nits diff --json
 - **Never add a comment to silence a finding.** That converts a bug into a
   documented bug and makes the next review harder.
 - **Never raise `--threshold` or pass `--min-precision` to force a clean exit.**
+- **In Rust, a name that matches the value is not slop.** `let tmp = tempfile::tempdir()`
+  is accurately named, and the rule already exempts it.
   If a finding is a false positive, say so and cite the rule and line.
 - **Never pad.** Extracting a helper is fine; splitting statements to change a
   metric is not. The reward penalises growth for this reason.

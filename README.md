@@ -2,8 +2,8 @@
 
 Diff-scoped slop checks with published precision.
 
-`nits` parses code with tree-sitter, reports node-level findings, and refuses to
-score lines you did not change. Every rule ships with a precision number, and the
+`nits` parses code with tree-sitter (Python, TypeScript/JavaScript, Rust),
+reports node-level findings, and refuses to score lines you did not change. Every rule ships with a precision number, and the
 number comes from two places: a labeled corpus, and hand-read samples on code that
 was never used while writing the rule. When the two disagree, the lower one wins.
 
@@ -42,25 +42,38 @@ nits diff --gate 0.90 --json   # for agent consumption
 
 ## The rules
 
-| Rule | Default | Precision | Catches |
-|---|---|---|---|
-| `config_fallback` | on | 0.95 | `process.env.X \|\| 'localhost'`, `os.getenv('X', 'changeme')`, empty default for a secret |
-| `swallowed_error` | on | 0.95 | handler body that has no effect on the error, including `_ = error` and `void err` |
-| `error_to_empty_success` | on | 0.95 | handler returning `{}` / `[]` / `None` so callers cannot tell failure from empty |
-| `elision_comment` | on | 0.95 | `// ... rest of the implementation`, `TODO: implement` |
-| `deep_nesting` | on | 0.95 | control nesting depth ≥ 5 inside one function, counted from the AST |
-| `narrator_comment` | on | **0.68** | comment restating the statement it precedes |
-| `junk_identifier` | on | 0.95 | `tmp`, `data1`, `foo`, `_old`, `_backup` |
-| `commented_out_code` | opt-in | 0.95 | comment whose body parses as a statement |
-| `suppression_without_reason` | opt-in | 0.95 | *unscoped* `# noqa` / `@ts-ignore` / `eslint-disable` |
+| Rule | Default | ts | py | rs | Catches |
+|---|---|---|---|---|---|
+| `config_fallback` | on | 0.95 | 0.95 | 0.95 | `process.env.X \|\| 'localhost'`, `os.getenv('X','changeme')`, `env::var("X").unwrap_or("localhost".into())` |
+| `swallowed_error` | on | 0.95 | 0.95 | **0.50** | handler body with no effect; `_ = error`, `void err`, `r.ok()`, `let _ = send()`, `Err(_) => {}` |
+| `error_to_empty_success` | on | 0.95 | 0.95 | 0.95 | handler returning `{}`/`[]`/`None`, `Err(e) => Vec::new()`, so callers cannot tell failure from empty |
+| `elision_comment` | on | 0.95 | 0.95 | 0.95 | `// ... rest of the implementation`, `TODO: implement` |
+| `deep_nesting` | on | 0.95 | 0.95 | 0.95 | control nesting depth ≥ 5 in one function (`if`/`for`/`while`/`match`), from the AST |
+| `narrator_comment` | on | **0.64** | 0.76~ | **0.91** | comment restating the statement it precedes |
+| `junk_identifier` | on | 0.95 | 0.95 | 0.95 | `tmp`, `data1`, `foo`, `_old`, `_backup` |
+| `commented_out_code` | opt-in | 0.95 | 0.95 | 0.95 | comment whose body parses as a statement |
+| `suppression_without_reason` | opt-in | 0.95 | 0.95 | 0.95 | *unscoped* `# noqa` / `@ts-ignore` / `#![allow]` |
+
+`~` marks a cell with no language-specific sample: the number shown is the pooled
+one, which is a weaker claim than a measured column.
 
 Precision is capped at 0.95: a rule with no observed false positive is not a
 perfect rule, it is an under-measured one.
 
-`narrator_comment` is the only rule below the 0.80 bar, and it is the one signal
-people actually want. It stays enabled for human reading, is excluded from
-`--gate 0.80`, and contributes nothing to the reward. Making it good needs commit
--mined labels, not more heuristics — see [Limits](#what-this-does-not-do).
+Two cells sit below the 0.80 bar, and both stay visible rather than being tuned
+until the table looks good:
+
+- `narrator_comment` on TypeScript (0.64) — type files attract label comments
+  (`// CamelCase delete response schema`) that are indistinguishable from
+  narration without knowing what the next node is. On Rust the same rule measures
+  0.91, because Rust code comments its own actions.
+- `swallowed_error` on Rust (0.50) — `let _ = tracing_subscriber::fmt::try_init()`
+  discards a `Result` by design, and syntax alone cannot tell that from a dropped
+  error. The TypeScript and Python spellings measure 0.95.
+
+Below-bar cells are excluded from `--gate 0.80` and contribute nothing to the
+reward, per language. Making `narrator_comment` good on TypeScript needs
+commit-mined labels, not more heuristics — see [Limits](#what-this-does-not-do).
 
 ## Why it is shaped this way
 
@@ -83,31 +96,35 @@ empty value.
 **Diff scoping.** Legacy debt is why full-repo gates get turned off. `nits` never
 scores a line your change did not touch.
 
-**Published precision, and a lower bound on it.** The labeled corpus was written
-alongside the rules, so its precision is in-sample and optimistic — the same trap
-that makes other tools' headline numbers unreproducible. `src/nits/heldout.py`
-holds hand-adjudicated samples from held-out code, and `precision_of` returns the
-lower of the two.
+**Published precision, as a lower bound, per language.** The labeled corpus was
+written alongside the rules, so its precision is in-sample and optimistic — the
+same trap that makes other tools' headline numbers unreproducible.
+`src/nits/heldout.py` holds hand-adjudicated samples from held-out code, and
+`precision_of` returns the lower of in-sample and held-out.
+
+Per-language, because averaging hides the finding. The same rule is 0.64 on
+TypeScript and 0.91 on Rust; one global number would either disable a rule that
+works or trust a measurement that does not exist. `nits rules` prints the matrix.
 
 ## Measurements
 
 ### Labeled corpus
 
-77 cases across 12 languages/rule combinations, including 12 adversarial cases
-(the evasions that defeat indentation-based tools) and 5 anti-inversion guards
-(descriptive names must not be flagged).
+108 cases across three languages, including 14 adversarial cases (the evasions
+that defeat indentation-based tools) and 8 anti-inversion guards (descriptive
+names must not be flagged).
 
 ```
 rule                             prec    rec   tp  fp  fn  tn
-config_fallback                  1.00   1.00    6   0   0   4
-swallowed_error                  1.00   1.00    8   0   0   4
-error_to_empty_success           1.00   1.00    7   0   0   2
-elision_comment                  1.00   1.00    5   0   0   3
-deep_nesting                     1.00   1.00    3   0   0   3
-narrator_comment                 1.00   1.00    5   0   0   3
-junk_identifier                  1.00   1.00    3   0   0   3
-commented_out_code               1.00   1.00    2   0   0   3
-suppression_without_reason       1.00   1.00    3   0   0   5
+config_fallback                  1.00   1.00    9   0   0   6
+swallowed_error                  1.00   1.00   13   0   0   6
+error_to_empty_success           1.00   1.00    9   0   0   3
+elision_comment                  1.00   1.00    6   0   0   3
+deep_nesting                     1.00   1.00    4   0   0   5
+narrator_comment                 1.00   1.00    6   0   0   5
+junk_identifier                  1.00   1.00    4   0   0   4
+commented_out_code               1.00   1.00    3   0   0   4
+suppression_without_reason       1.00   1.00    4   0   0   6
 
 no inversions — every asserted-clean case stayed clean
 ```
@@ -116,31 +133,40 @@ In-sample, and therefore worth little on its own.
 
 ### Held-out code
 
-`ComposioHQ/composio`, `ts/` package, 400 files / 85,482 lines — never read while
-writing a rule:
+Repositories never read while writing a rule. Density is reported, not sampled;
+precision comes from hand-read samples with a recorded seed.
 
-| | |
-|---|---|
-| Findings | 247 |
-| Density | **0.29 per 100 lines** |
-| Hand-read sample (n=36) | **29 true positives (0.81)** |
-| `narrator_comment` alone (n=22) | 15 true positives (0.68) |
+| Repository | Language | Files | Lines | Findings | Per 100 lines |
+|---|---|---|---|---|---|
+| `ComposioHQ/composio` `ts/` | TS | 400 | 85,510 | 244 | **0.29** |
+| Rust workspace (external) | Rust | 177 | 70,510 | 332 | **0.47** |
+| private monorepo | Rust | 317 | 145,375 | 118 | **0.08** |
+| private CLI | Rust | 56 | 23,022 | 34 | **0.15** |
+| private service | Rust | 27 | 5,449 | 34 | **0.62** |
+| private crate | Rust | 51 | 24,708 | 13 | **0.05** |
+| `instant-distance` | Rust | 10 | 1,980 | 8 | **0.40** |
+| `esmwell` | Rust/Py | 316 | 52,193 | 23 | 0.04 |
+| `agent-orchestrator` | TS | 174 | 42,148 | 240 | 0.57 |
+| `durable-streams` | TS | 275 | 82,648 | 715 | 0.87 |
 
-Also measured, no sampling: `~/work/me` — `esmwell` 0.04/100, a private Rust CLI 0.34,
-`agent-orchestrator` 0.57, `durable-streams` 0.87.
+Rows without a linked repository are either private or another project's, so
+they appear by role rather than by name. Their numbers are unchanged.
+
+Vendored trees (`third_party/, `node_modules/`, `site-packages/`, `dist/`) and
+generated bundles are never scored. Code you did not write is not yours to fix.
 
 ### Invariance
 
-539 strict checks (7 meaning-preserving transforms × 77 cases), all passing:
+756 strict checks (7 meaning-preserving transforms × 108 cases), all passing:
 
 | Transform | Result |
 |---|---|
 | `reindent` (2 spaces, 8 spaces, tabs) | findings identical |
 | `trailing_whitespace`, `blank_line_padding` | findings identical |
-| `quote_style` | findings identical |
+| `quote_style` | findings identical (a no-op on Rust: `'x'` is a char, so swapping would change the program) |
 | `rename_catch_binding` | findings identical |
 
-Paraphrasing comment words moves 5 of 77 cases (6%), all `narrator_comment`. That
+Paraphrasing comment words moves 6 of 108 cases (6%), all `narrator_comment`. That
 coupling is inherent to matching comment text against identifier text, so it is
 reported rather than hidden.
 
@@ -166,8 +192,10 @@ failure that let a benchmark target grow 56% while its "hygiene" rating rose.
   published work, a diagnostic that improved on *every* axis produced the worst
   real outcome, three times over. Precision is the proxy; do not let it become
   the goal. `evals/task_metric.json` is the slot for it, and it is empty.
-- **Two languages**, Python and TypeScript/JavaScript. Adding more means adding
-  grammar entries, not rule sets.
+- **Three languages**, Python, TypeScript/JavaScript and Rust. Adding more means
+  adding grammar entries plus a handful of adapter branches, not a new rule set —
+  but each language also needs its own held-out sample before its column is worth
+  anything.
 - **No naming-length rule.** Short is not the same as bad, and length is exactly
   the heuristic that flags `canReusePreviousArticle` while letting
   `const xx = d[47]` through. `junk_identifier` targets placeholder names only.
@@ -193,7 +221,7 @@ zero tokenizers and zero AST parsers. Measured on the same repository, at
 | `// Loop over the items` before `for item in items` | not reported | reported |
 | `const canReusePreviousArticle = …` | reported as poor naming | not reported |
 | `const xx = d[47];` | not reported | not reported (known gap) |
-| Purpose-built rules | hand-written thresholds tuned until reference repos scored clean | — |
+| Languages | 11 | 3, measured |
 
 The lesson taken from it is not "do it with a neural net". It is that a hygiene
 signal earns trust by publishing what it gets wrong, and that a gate nobody can
