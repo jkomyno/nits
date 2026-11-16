@@ -4,8 +4,6 @@
 
 `nits` parses the lines a change touched with tree-sitter and reports nine kinds of sloppy code: swallowed errors, failures returned as empty values, dev defaults sitting on environment variables, comments that restate the line below them or stand in for code nobody wrote. Findings point at AST nodes, so re-indenting a file cannot create or destroy one.
 
-Every rule carries a measured precision per language, and that number is printed next to every finding.
-
 ```console
 $ nits diff
 src/a.ts
@@ -14,6 +12,10 @@ src/a.ts
 
 1 finding(s) across 1 file(s). Advisory: nothing was blocked.
 ```
+
+## Background
+
+`nits` is an answer to [`codehygiene`](https://github.com/brianbell-x/codehygiene) ([announcement](https://x.com/brianbellx/status/2121973517273153540)), which describes itself as "a weight-space compiled System One model for code readability and hygiene". It has 428K ternary parameters, no gradients or training, 11 KB on disk, and it reads source as a grid of bytes. The goal is the same, and the approach is different. `nits` reads syntax instead of whitespace, publishes the precision of every rule per language, and keeps its misses in the count. It covers 3 languages to `codehygiene`'s 11, and the full comparison is [below](#nodes-not-lines).
 
 ## Run it
 
@@ -87,7 +89,7 @@ Findings carry the AST span they came from. Re-indenting a file cannot create or
 
 Error handlers are matched by shape. `except E: pass`, `except E as e: _ = e` and `catch (err) { void err; }` are the same node shape, so renaming the binding changes nothing. A handler that contains an explanatory comment is not reported, and neither is a `.catch(() => {})` with one on the line above, because silence is the failure mode and a comment is the opposite of silence. A handler returning `false` is not reported either, since a boolean is a decision rather than an empty value.
 
-`nits` is an answer to [`codehygiene`](https://github.com/brianbell-x/codehygiene) ([announcement](https://x.com/brianbellx/status/2121973517273153540)), which describes itself as "a weight-space compiled System One model for code readability and hygiene". It has 428K ternary parameters, no gradients or training, 11 KB on disk, and it reads source as a grid of bytes. Same goal, different approach. `codehygiene` is a byte-grid model with hand-tuned thresholds and no parser, so its signals move when the indentation does, and they point the wrong way on real code.
+`codehygiene` is a byte-grid model with hand-tuned thresholds and no parser, so its signals move when the indentation does, and they point the wrong way on real code. It covers 11 languages to `nits`'s 3.
 
 | | [`codehygiene` at `423c7e1`](https://github.com/brianbell-x/codehygiene/tree/423c7e1) | `nits` |
 |---|---|---|
@@ -97,6 +99,7 @@ Error handlers are matched by shape. `except E: pass`, `except E as e: _ = e` an
 | `# Loop over the items` before `for item in items` | not reported | reported |
 | `const canReusePreviousArticle = …` | reported as poor naming | not reported |
 | `const xx = d[47];` | not reported | not reported, a known gap |
+| False positives on its own benchmark cases | present | none in-sample |
 | Threshold | one, for every kind of finding | per rule, per language |
 | Languages | 11 | 3 |
 
