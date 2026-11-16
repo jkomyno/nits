@@ -62,7 +62,7 @@ MESSY = (
     "    try:\n"
     "        return parse()\n"
     "    except Exception:\n"
-    "        pass\n"
+    "        return None\n"
 )
 
 

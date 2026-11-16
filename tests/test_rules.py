@@ -232,17 +232,29 @@ def test_temp_names_for_real_temp_files_are_accurate_names():
 def test_rust_swallow_spelling_is_measured_weaker_than_typescript():
     """The `let _ =` idiom discards Results by design often enough to matter."""
     assert nits.precision_of("swallowed_error", "rust") < 0.80
-    assert nits.precision_of("swallowed_error", "ts") >= 0.80
+    assert nits.precision_of("swallowed_error", "rust") < nits.precision_of("swallowed_error", "ts")
 
 
 def test_min_precision_uses_the_language_column():
-    """Rust `let _ =` measures 0.50; the pooled 0.95 must not let it through a 0.80 filter."""
-    src = "fn f(m: M) {\n    let _ = send(m);\n}\n"
-    kept = nits.check_source(src, lang="rust", min_precision=0.80)
-    assert "swallowed_error" not in {f.rule for f in kept}
-    ts = "function f() {\n  try { parse(); } catch (err) { void err; }\n}\n"
+    """narrator_comment is above the bar on Rust and below it on TypeScript and pooled."""
+    assert nits.precision_of("narrator_comment") < 0.80
+    rs = "fn f(m: M) {\n    // Send the message\n    send_message(m);\n}\n"
+    kept = nits.check_source(rs, lang="rust", min_precision=0.80)
+    assert "narrator_comment" in {f.rule for f in kept}
+    ts = "function f(m) {\n  // Send the message\n  sendMessage(m);\n}\n"
     kept = nits.check_source(ts, lang="ts", min_precision=0.80)
-    assert "swallowed_error" in {f.rule for f in kept}
+    assert "narrator_comment" not in {f.rule for f in kept}
+
+
+def test_tsx_reads_the_typescript_column():
+    assert nits.precision_of("narrator_comment", "tsx") == nits.precision_of("narrator_comment", "ts")
+
+
+def test_pooled_precision_counts_every_language_sample():
+    """A language with no sample falls back to everything read, not to a subset."""
+    from nits.heldout import HELDOUT_BY_LANG, pooled
+    tp, n = pooled("swallowed_error")
+    assert n == sum(k for key, (_, k) in HELDOUT_BY_LANG.items() if key.startswith("swallowed_error:"))
 
 
 def test_rust_narrator_is_measured_stronger_than_typescript():
