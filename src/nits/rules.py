@@ -1,0 +1,893 @@
+"""AST-based rules.
+
+Design constraints, each one a direct answer to a measured failure of
+byte-grid heuristics:
+
+* Findings come from *nodes*, so re-indenting source cannot create or destroy a
+  finding, and continuation lines cannot masquerade as nesting.
+* Catch analysis reads the *body* of the handler. `except E: pass`,
+  `except E as e: _ = e`, `catch (e) { void e; }` and `catch (e) { return {} }`
+  are all the same shape to the AST, so renaming or re-spelling the binding
+  changes nothing.
+* Nothing matches on identifier *length*.
+* Rules under-flag on purpose where intent is ambiguous (`continue`/`break` in a
+  handler, `?? {}` outside a catch). Precision is the product.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Callable, Iterator
+
+from tree_sitter import Node
+
+from .findings import Finding
+from .lang import FAMILY, parse, walk
+
+
+class Ctx:
+    """Per-file analysis context.
+
+    tree-sitter's Python bindings build a fresh Node object on every attribute
+    access, so the same file walked once per rule costs nine times what walking
+    it once costs. Everything below is a cache over a single traversal.
+    """
+
+    __slots__ = ("lang", "source", "root", "lines", "_nodes", "_text", "_ident", "_stmt")
+
+    def __init__(self, lang: str, source: bytes, root: Node, lines: list[str]) -> None:
+        self.lang = lang
+        self.source = source
+        self.root = root
+        self.lines = lines
+        self._nodes: list[Node] | None = None
+        self._text: dict[int, str] = {}
+        self._ident: dict[int, set[str]] = {}
+        self._stmt: dict[int, set[str]] = {}
+
+    @property
+    def family(self) -> str:
+        return FAMILY[self.lang]
+
+    @property
+    def nodes(self) -> list[Node]:
+        if self._nodes is None:
+            self._nodes = list(walk(self.root))
+        return self._nodes
+
+    def text(self, node: Node | None) -> str:
+        if node is None:
+            return ""
+        key = node.id
+        cached = self._text.get(key)
+        if cached is None:
+            cached = self.source[node.start_byte : node.end_byte].decode("utf-8", "replace")
+            self._text[key] = cached
+        return cached
+
+    def line(self, node: Node) -> int:
+        return node.start_point[0] + 1
+
+    def line_text(self, line: int) -> str:
+        return self.lines[line - 1] if 0 < line <= len(self.lines) else ""
+
+
+def make_ctx(source: str | bytes, lang: str) -> Ctx:
+    raw = source.encode("utf-8") if isinstance(source, str) else source
+    return Ctx(
+        lang=lang,
+        source=raw,
+        root=parse(lang, raw).root_node,
+        lines=raw.decode("utf-8", "replace").splitlines(),
+    )
+
+
+def _find(ctx: Ctx, rule: str, node: Node, message: str) -> Finding:
+    return Finding(
+        rule=rule,
+        message=message,
+        line=ctx.line(node),
+        col=node.start_point[1] + 1,
+        end_line=node.end_point[0] + 1,
+        end_col=node.end_point[1] + 1,
+        evidence=ctx.text(node).strip().splitlines()[0][:160] if ctx.text(node).strip() else "",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Shared node predicates
+# --------------------------------------------------------------------------- #
+
+_SUSPICIOUS_DEFAULTS = {
+    "localhost", "127.0.0.1", "0.0.0.0", "::1",
+    "dev-secret", "dev_secret", "devsecret", "dev-secrets",
+    "changeme", "change-me", "change_me",
+    "secret", "password", "passwd", "pwd", "admin", "root",
+    "test", "testing", "dev", "development", "local",
+    "dummy", "example", "example.com", "foo", "bar", "baz",
+    "x", "xx", "xxx", "abc", "todo", "skip",
+}
+_EMPTY_DEFAULTS = {"", " "}
+_SECRETISH = re.compile(r"(KEY|TOKEN|SECRET|PASS|PWD|CRED|AUTH|SALT|SIGNATURE)", re.I)
+
+MAX_DEPTH = 5
+
+_JUNK_EXACT = {
+    "tmp", "temp", "tmp1", "temp1", "foo", "bar", "baz", "asdf",
+    "qwerty", "dummy", "stuff", "thing", "things", "var1", "var2", "obj1", "res1",
+}
+_JUNK_PATTERN = re.compile(
+    r"^(?:tmp|temp|data|test|foo|bar|baz|var|obj|res)\d+$"
+    r"|_(?:old|bak|backup|copy|orig|original|deprecated|depr|temp|tmp|unused|wip)$",
+    re.I,
+)
+
+_CONTROL_JS = {
+    "if_statement", "for_statement", "for_in_statement", "while_statement",
+    "do_statement", "switch_statement", "try_statement", "catch_clause",
+}
+_CONTROL_PY = {
+    "if_statement", "for_statement", "while_statement", "try_statement",
+}
+_FUNC_NODES = {
+    "function_definition", "function_declaration", "method_definition",
+    "arrow_function", "function_expression", "generator_function_declaration",
+}
+
+
+def _string_literal(node: Node | None) -> str | None:
+    """Return the decoded value of a string literal node, else None."""
+    if node is None:
+        return None
+    if node.type in ("string", "template_string"):
+        raw = node.text.decode("utf-8", "replace") if node.text else ""
+        if node.type == "template_string" and raw.startswith("`") and "${" in raw:
+            return None
+        return raw.strip("'\"`")
+    if node.type in ("string_fragment",):
+        return (node.text or b"").decode("utf-8", "replace")
+    return None
+
+
+def _bool_op(node: Node) -> str | None:
+    """Return the operator text for a boolean/binary junction node."""
+    if node.type in ("boolean_operator", "binary_expression", "ternary_expression"):
+        for child in node.children:
+            if not child.is_named:
+                return child.type
+    return None
+
+
+_PY_ENV_CALLS = {"os.getenv", "os.environ.get", "environ.get", "getenv"}
+_PY_ENV_OBJECTS = {"os.environ", "environ"}
+
+
+def _env_key(node: Node, ctx: Ctx) -> str | None:
+    """Return the environment-variable name read by `node`, if it reads one."""
+    if ctx.family == "python":
+        return _py_env_key(node, ctx)
+    return _js_env_key(node, ctx)
+
+
+def _py_env_key(node: Node, ctx: Ctx) -> str | None:
+    if node.type == "call":
+        if ctx.text(node.child_by_field_name("function")) not in _PY_ENV_CALLS:
+            return None
+        args = node.child_by_field_name("arguments")
+        named = args.named_children if args is not None else []
+        return _string_literal(named[0]) if named else None
+    if node.type != "subscript":
+        return None
+    if ctx.text(node.child_by_field_name("value")) not in _PY_ENV_OBJECTS:
+        return None
+    return _string_literal(node.child_by_field_name("subscript"))
+
+
+def _js_env_key(node: Node, ctx: Ctx) -> str | None:
+    if node.type == "member_expression":
+        if ctx.text(node.child_by_field_name("object")) != "process.env":
+            return None
+        return ctx.text(node.child_by_field_name("property")) or None
+    if node.type != "subscript_expression":
+        return None
+    if ctx.text(node.child_by_field_name("object")) != "process.env":
+        return None
+    return _string_literal(node.child_by_field_name("index"))
+
+
+def _inert_statements(nodes: list[Node], ctx: Ctx) -> bool:
+    """True if every statement is a no-op on the error (pass / void / alias)."""
+    if not nodes:
+        return True
+    for stmt in nodes:
+        t = stmt.type
+        if t in ("pass_statement", "empty_statement", "comment"):
+            continue
+        if t == "expression_statement":
+            inner = [c for c in stmt.named_children if c.type != "comment"]
+            if not inner:
+                continue
+            expr = inner[0]
+            if expr.type in ("identifier", "member_expression", "attribute", "subscript"):
+                continue
+            if expr.type == "unary_expression" and ctx.text(expr).startswith("void"):
+                continue
+            # python nests assignments inside expression_statement
+            if expr.type in ("assignment", "augmented_assignment"):
+                rhs = expr.child_by_field_name("right")
+                if rhs is not None and rhs.type in (
+                    "identifier", "member_expression", "attribute", "subscript",
+                ):
+                    continue
+            return False
+        if t == "assignment" or t == "assignment_expression":
+            rhs = stmt.child_by_field_name("right")
+            if rhs is not None and rhs.type in (
+                "identifier", "member_expression", "attribute", "subscript",
+            ):
+                continue
+            return False
+        if t in ("lexical_declaration", "variable_declaration"):
+            decls = [c for c in stmt.named_children if c.type == "variable_declarator"]
+            inits = [d.child_by_field_name("value") for d in decls]
+            if inits and all(i is None or i.type in ("identifier", "member_expression") for i in inits):
+                continue
+            return False
+        return False
+    return True
+
+
+
+def _empty_return_value(node: Node, ctx: Ctx) -> bool:
+    """True if a return statement hands back an empty/null-ish success value."""
+    if node.type != "return_statement":
+        return False
+    named = [c for c in node.named_children if c.type != "comment"]
+    if not named:
+        return True  # bare `return` -> returns None
+    val = named[0]
+    # A boolean is a decision, not an empty value: `catch { return false }` in an
+    # `isCaseSensitive()` guard is the fail-safe answer, not a hidden failure.
+    if val.type in ("none", "null", "undefined"):
+        return True
+    if val.type in ("object", "dictionary"):
+        return len([c for c in val.named_children if c.type in ("pair", "comment") and c.type != "comment"]) == 0
+    if val.type in ("array", "list", "tuple"):
+        return len([c for c in val.named_children if c.type != "comment"]) == 0
+    return False
+
+
+def _catch_bodies(node: Node, ctx: Ctx) -> Iterator[tuple[Node, Node]]:
+    """Yield (header_node, body_node) for every catch/except handler."""
+    if ctx.family == "python":
+        yield from _py_catch_bodies(node)
+        return
+    yield from _js_catch_bodies(node, ctx)
+
+
+def _py_catch_bodies(node: Node) -> Iterator[tuple[Node, Node]]:
+    if node.type != "except_clause":
+        return
+    for child in node.named_children:
+        if child.type == "block":
+            yield node, child
+
+
+def _js_catch_bodies(node: Node, ctx: Ctx) -> Iterator[tuple[Node, Node]]:
+    if node.type == "catch_clause":
+        for child in node.named_children:
+            if child.type == "statement_block":
+                yield node, child
+        return
+    if node.type != "call_expression":
+        return
+    fn = node.child_by_field_name("function")
+    if fn is None or fn.type != "member_expression":
+        return
+    if ctx.text(fn.child_by_field_name("property")) != "catch":
+        return
+    args = node.child_by_field_name("arguments")
+    if args is None:
+        return
+    for arg in args.named_children:
+        if arg.type not in ("arrow_function", "function_expression"):
+            continue
+        body = arg.child_by_field_name("body")
+        if body is not None:
+            yield node, body
+
+
+# --------------------------------------------------------------------------- #
+# Rule: config_fallback
+# --------------------------------------------------------------------------- #
+
+def rule_config_fallback(ctx: Ctx) -> Iterator[Finding]:
+    """`process.env.X || 'localhost'` / `os.getenv('X', 'changeme')`."""
+    for node in ctx.nodes:
+        key = _env_key(node, ctx)
+        if not key:
+            continue
+        default: str | None = None
+        # a) junction: env || 'x', env ?? 'x', env or 'x'
+        if node.parent is not None:
+            p = node.parent
+            if p.type in ("boolean_operator", "binary_expression") and _bool_op(p) in ("||", "??", "or", "&&"):
+                other = p.child_by_field_name("right")
+                if other is not None:
+                    default = _string_literal(other)
+        # b) call with a default argument: os.getenv('X', 'y')
+        if default is None and node.type == "call":
+            args = node.child_by_field_name("arguments")
+            if args:
+                named = [c for c in args.named_children if c.type != "comment"]
+                if len(named) >= 2:
+                    default = _string_literal(named[1])
+        if default is None:
+            continue
+        low = default.strip().lower()
+        bad = low in _SUSPICIOUS_DEFAULTS or (
+            default in _EMPTY_DEFAULTS and _SECRETISH.search(key) is not None
+        )
+        if not bad:
+            continue
+        yield _find(
+            ctx, "config_fallback", node,
+            f'{key} silently falls back to "{default}" — fail fast, or make the default explicit and env-scoped',
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Rule: swallowed_error
+# --------------------------------------------------------------------------- #
+
+_NON_BLOCK_NOOP = {"undefined", "null", "None", "{}", "[]", "void 0", ""}
+
+
+def _block_children(body: Node) -> list[Node] | None:
+    """Statements of a handler body, or None for a non-block expression body."""
+    if body.type in ("statement_block", "block"):
+        return [c for c in body.named_children if c.type != "comment"]
+    return None
+
+
+def _documented(body: Node, ctx: Ctx, min_chars: int = 15) -> bool:
+    """True when a handler explains itself in a comment.
+
+    `catch {}` and `catch { /* keep walking to the filesystem root */ }` are not
+    the same act. The second one told you why. Silence is the failure mode, and
+    a comment is the opposite of silence.
+    """
+    return any(
+        c.type == "comment" and len(ctx.text(c).strip()) >= min_chars
+        for c in body.named_children
+    )
+
+
+def rule_swallowed_error(ctx: Ctx) -> Iterator[Finding]:
+    """A handler whose body has no effect on the error."""
+    for node in ctx.nodes:
+        for header, body in _catch_bodies(node, ctx):
+            stmts = _block_children(body)
+            if stmts is None:
+                # `.catch(e => e)` returns the error to the caller: an identity
+                # catch, not a swallowed one.
+                if ctx.text(body).strip() in _NON_BLOCK_NOOP:
+                    yield _find(
+                        ctx, "swallowed_error", header,
+                        "error is caught and discarded — rethrow, handle it, or let it propagate",
+                    )
+                continue
+            if _documented(body, ctx):
+                continue
+            if any(s.type == "return_statement" for s in stmts):
+                continue  # error_to_empty_success owns returns
+            if _inert_statements(stmts, ctx):
+                yield _find(
+                    ctx, "swallowed_error", header,
+                    "error is caught and discarded — rethrow, handle it, or let it propagate",
+                )
+
+
+# --------------------------------------------------------------------------- #
+# Rule: error_to_empty_success
+# --------------------------------------------------------------------------- #
+
+def rule_error_to_empty_success(ctx: Ctx) -> Iterator[Finding]:
+    """A handler that converts failure into an empty-looking success value."""
+    for node in ctx.nodes:
+        for header, body in _catch_bodies(node, ctx):
+            if _block_children(body) is None:
+                continue  # expression bodies are handled as identity catches
+            if _documented(body, ctx):
+                continue
+            stmts = _block_children(body) or []
+            rets = [s for s in stmts if s.type == "return_statement"]
+            if not rets:
+                continue
+            if all(_empty_return_value(r, ctx) for r in rets) and _inert_statements(
+                [s for s in stmts if s.type != "return_statement"], ctx
+            ):
+                yield _find(
+                    ctx, "error_to_empty_success", header,
+                    "failure is returned as an empty value — the caller cannot tell this apart from success",
+                )
+
+
+# --------------------------------------------------------------------------- #
+# Rule: suppression_without_reason
+# --------------------------------------------------------------------------- #
+
+_SUPPRESSION_JS = re.compile(r"@ts-ignore\b|eslint-disable(?:-next-line|-line)?\b|biome-ignore\b|@ts-nocheck\b")
+_SUPPRESSION_PY = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore\b|#\s*pyright:\s*ignore\b|#\s*pylint:\s*disable")
+_REASON_PY = re.compile(r"#\s*\S|--\s*\S")
+
+
+def rule_suppression_without_reason(ctx: Ctx) -> Iterator[Finding]:
+    """*Unscoped* lint/type suppressions.
+
+    `# noqa: F401` names what it silences — the code is the reason. `# noqa`
+    with nothing after it silences everything on the line, including errors the
+    author has never seen. Only the second is a risk worth reporting; flagging
+    the first is a policy opinion, and policy opinions at that volume are how
+    linters get switched off.
+    """
+    for node in ctx.nodes:
+        if node.type != "comment":
+            continue
+        text = ctx.text(node)
+        if ctx.family == "js":
+            m = _SUPPRESSION_JS.search(text)
+            if not m:
+                continue
+            if "@ts-expect-error" in text:
+                continue  # asserts an error exists; that is the good form
+            tail = text[m.end() :].strip()
+            scoped = bool(re.match(r"^[\w@./-]+", tail))
+            if scoped:
+                continue
+            if tail.startswith("--") and tail[2:].strip():
+                continue
+        else:
+            m = _SUPPRESSION_PY.search(text)
+            if not m:
+                continue
+            tail = text[m.end() :].strip()
+            # `: E501`, `[misc]`, `=protected-access` all name the target
+            if re.match(r"^[:=]\s*\S", tail) or re.match(r"^\[\w", tail):
+                continue
+            if tail.startswith("#") and tail[1:].strip():
+                continue
+            if tail.startswith("--") and tail[2:].strip():
+                continue
+        yield _find(
+            ctx, "suppression_without_reason", node,
+            "unscoped suppression — name the rule, or fix the underlying issue",
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Rule: elision_comment
+# --------------------------------------------------------------------------- #
+
+_ELISION = re.compile(
+    r"\b(?:rest|remainder) of (?:the |this |your )?(?:implementation|code|file|methods?|functions?|logic|handlers?)\b"
+    r"|\bfor brevity\b|\bomitted for (?:brevity|clarity|space|demo|readability)\b"
+    r"|\belided\b"
+    r"|\bimplementation details (?:omitted|elided|follow)\b"
+    r"|\bunchanged (?:from|code|implementation|aside)\b"
+    r"|\bexisting (?:code|implementation|logic) (?:remains|unchanged|as-is)\b"
+    r"|\b(?:same|identical) as (?:above|before)\b"
+    r"|\btodo:? implement\b|\bnot implemented yet\b|\bplaceholder (?:for|implementation)\b"
+    r"|^\s*\.\.\.\s*$|^\s*snip\s*$",
+    re.I,
+)
+
+
+def rule_elision_comment(ctx: Ctx) -> Iterator[Finding]:
+    """Comments that stand in for code that was never written."""
+    for node in ctx.nodes:
+        if node.type != "comment":
+            continue
+        text = ctx.text(node)
+        body = re.sub(r"^\s*(?://+|/\*+|\*+|#+|--+)+", "", text).strip().rstrip("*/").strip()
+        if _ELISION.search(body):
+            yield _find(
+                ctx, "elision_comment", node,
+                "elision comment — implement it or delete the line; this is a truncation artifact",
+            )
+
+
+# --------------------------------------------------------------------------- #
+# Rule: narrator_comment
+# --------------------------------------------------------------------------- #
+
+_STOP = {
+    "the", "and", "for", "with", "this", "that", "from", "into", "then", "than",
+    "here", "there", "when", "what", "will", "have", "been",
+}
+_KEYWORD_TOKENS = {
+    "return_statement": {"return"},
+    "if_statement": {"if", "check"},
+    "for_statement": {"for", "loop", "iterate", "each"},
+    "for_in_statement": {"for", "loop", "iterate", "each"},
+    "while_statement": {"while", "loop"},
+    "try_statement": {"try"},
+    "throw_statement": {"throw"},
+    "raise_statement": {"raise", "throw"},
+}
+_ASSIGN_TOKENS = {"set", "assign", "store", "save", "put", "update"}
+
+
+def _words(text: str) -> set[str]:
+    out: set[str] = set()
+    # split camelCase, snake_case, kebab
+    for raw in re.split(r"[^A-Za-z0-9]+", text):
+        if not raw:
+            continue
+        parts = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+", raw) or [raw]
+        for part in parts:
+            w = part.lower()
+            if len(w) < 4 or w in _STOP:
+                continue
+            out.add(w[:-1] if w.endswith("s") and len(w) > 4 else w)
+    return out
+
+
+_ASSERTION_COMMENT = re.compile(
+    r"^\W*(?:should|expect|expects|expected|assert|asserts|verify|verifies|ensures?|must|never|always|note|warning|caveat)\b",
+    re.I,
+)
+
+
+def _identifier_words(node: Node, ctx: Ctx) -> set[str]:
+    """Identifier vocabulary of a statement, pruning type annotations.
+
+    Recursive on purpose: a flat walk cannot prune a subtree, and skipping a
+    node without pruning is how a `list[ToolParam]` annotation ended up matching
+    a comment about types.
+    """
+    cached = ctx._ident.get(node.id)
+    if cached is not None:
+        return cached
+    words: set[str] = set()
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        parent = cur.parent
+        if parent is not None and parent.child_by_field_name("type") is cur:
+            continue  # prune: type vocabulary is not code vocabulary
+        if cur.type in ("identifier", "property_identifier", "field_identifier"):
+            words |= _words(cur.text.decode("utf-8", "replace"))
+        stack.extend(cur.named_children)
+    ctx._ident[node.id] = words
+    return words
+
+
+def _statement_words(stmt: Node, ctx: Ctx) -> set[str]:
+    cached = ctx._stmt.get(stmt.id)
+    if cached is not None:
+        return cached
+    words = _identifier_words(stmt, ctx)
+    for node in walk(stmt):
+        for key, extra in _KEYWORD_TOKENS.items():
+            if node.type == key:
+                words |= extra
+        if node.type in ("assignment", "assignment_expression", "augmented_assignment"):
+            words |= _ASSIGN_TOKENS
+    ctx._stmt[stmt.id] = words
+    return words
+
+
+_BODY_NODES = {"block", "statement_block", "class_body", "declaration_list"}
+_DEFINITION_NODES = _FUNC_NODES | {"class_definition", "class_declaration"}
+
+
+def _next_statement(children, start: int, ctx: Ctx) -> Node | None:
+    """The statement a comment run documents.
+
+    Python attaches a suite's leading comment to the enclosing definition rather
+    than to the block, so the next sibling is a `block` and the statement is its
+    first child.
+    """
+    for sib in children[start:]:
+        if sib.type == "comment":
+            continue
+        if sib.type in _BODY_NODES:
+            inner = [c for c in sib.named_children if c.type != "comment"]
+            return inner[0] if inner else None
+        if sib.type in _DEFINITION_NODES:
+            body = sib.child_by_field_name("body")
+            if body is not None:
+                inner = [c for c in body.named_children if c.type != "comment"]
+                return inner[0] if inner else None
+        return sib
+    return None
+
+
+_DOC_OR_DIRECTIVE = re.compile(
+    r"^\s*(?:/\*\*|///|\*)"
+    r"|@ts-(?:ignore|nocheck|expect-error)|eslint|biome-ignore|prettier-ignore|istanbul|c8 ignore"
+    r"|webpackChunkName|#\s*type:|noqa|pylint:|pyright:"
+)
+
+
+_SECTION_RULE = re.compile(r"^[\s*#/\-=_`~|+]{0,3}(?:-{3,}|={3,}|_{3,}|\*{3,}|#{3,})")
+
+
+def _is_doc_or_directive(text: str) -> bool:
+    """Doc comments document; directive comments instruct tooling. Neither narrates."""
+    return bool(_DOC_OR_DIRECTIVE.search(text)) or "\n" in text
+
+
+def _is_section_rule(text: str) -> bool:
+    """`// --- Session schemas ---` is a structural header, not narration."""
+    return bool(_SECTION_RULE.search(text.strip()))
+
+
+def rule_narrator_comment(ctx: Ctx) -> Iterator[Finding]:
+    """A comment that restates the statement it precedes.
+
+    Uses AST identifiers, not 4-gram sketches: overlap is computed against the
+    names the *next statement* actually binds or reads.
+    """
+    for parent in ctx.nodes:
+        children = parent.children
+        for i, child in enumerate(children):
+            if child.type != "comment":
+                continue
+            # Only evaluate at the start of a comment run. Mid-run fragments
+            # ("... and it returns the filePath.") are prose, not narration.
+            if i > 0 and children[i - 1].type == "comment":
+                continue
+            # collect a run of comments (comments are `extra` nodes, so they are
+            # siblings of the statement they document)
+            run = []
+            j = i
+            while j < len(children) and children[j].type == "comment":
+                run.append(children[j])
+                j += 1
+            stmt = _next_statement(children, j, ctx)
+            if stmt is None:
+                continue
+            comment_words = _words(" ".join(ctx.text(c) for c in run))
+            if len(comment_words) < 1:
+                continue
+            # A paragraph explains; a one-line comment narrates. Only the latter
+            # is the failure mode, so long prose blocks are left alone.
+            if len(run) > 2:
+                continue
+            # "Should remove the entry" asserts behaviour, it does not restate code.
+            if _ASSERTION_COMMENT.match(ctx.text(run[0])):
+                continue
+            if any(_is_doc_or_directive(ctx.text(c)) for c in run):
+                continue
+            if any(_is_section_rule(ctx.text(c)) for c in run):
+                continue
+            stmt_words = _statement_words(stmt, ctx)
+            ident_words = _identifier_words(stmt, ctx)
+            overlap = comment_words & stmt_words
+            if not overlap:
+                continue
+            # Keyword overlap alone (`return`/`loop`) is not evidence; a real
+            # restatement shares a name.
+            if not (overlap & ident_words):
+                continue
+            ratio = len(overlap) / len(comment_words)
+            if len(overlap) >= 2 and ratio >= 0.5:
+                yield _find(
+                    ctx, "narrator_comment", run[0],
+                    f"comment restates the next statement ({', '.join(sorted(overlap))}) — drop it or say why",
+                )
+
+
+# --------------------------------------------------------------------------- #
+# Rule: deep_nesting
+# --------------------------------------------------------------------------- #
+
+def rule_deep_nesting(ctx: Ctx) -> Iterator[Finding]:
+    """Report one finding per function body whose control nesting exceeds the limit.
+
+    Depth is structural. A nested function restarts the count (extracting a
+    helper is the fix, not a breach), and `else if` chains do not accumulate.
+    """
+    controls = _CONTROL_PY if ctx.family == "python" else _CONTROL_JS
+    limit = MAX_DEPTH
+
+    def depth_of(node: Node, depth: int, worst: list[tuple[int, Node]]) -> None:
+        for child in node.named_children:
+            if child.type in _FUNC_NODES:
+                continue  # a new scope owns its own depth
+            if child.type in controls:
+                if family_is_else_if(child, ctx):
+                    # `else if` continues the chain at the same level
+                    depth_of(child, depth, worst)
+                    continue
+                d = depth + 1
+                if d > worst[0][0]:
+                    worst[0] = (d, child)
+                depth_of(child, d, worst)
+                continue
+            depth_of(child, depth, worst)
+
+    for node in ctx.nodes:
+        if node.type not in _FUNC_NODES:
+            continue
+        worst: list[tuple[int, Node]] = [(0, node)]
+        depth_of(node, 0, worst)
+        if worst[0][0] >= limit:
+            yield _find(
+                ctx, "deep_nesting", worst[0][1],
+                f"control nesting depth {worst[0][0]} — invert conditions into guard clauses or extract a helper",
+            )
+
+
+def family_is_else_if(node: Node, ctx: Ctx) -> bool:
+    """True when this `if` is the `else if` continuation of its parent."""
+    if node.type != "if_statement":
+        return False
+    parent = node.parent
+    if parent is None:
+        return False
+    if ctx.family == "js" and parent.type == "else_clause":
+        named = [c for c in parent.named_children if c.type != "comment"]
+        return len(named) == 1 and named[0].id == node.id
+    return False
+
+
+# --------------------------------------------------------------------------- #
+# Rule: junk_identifier
+# --------------------------------------------------------------------------- #
+
+def _binding_names(node: Node, ctx: Ctx) -> Iterator[Node]:
+    """Yield identifier nodes that introduce a new local binding."""
+    fam = ctx.family
+    if fam == "python":
+        if node.type == "parameters":
+            for child in node.named_children:
+                if child.type == "identifier":
+                    yield child
+        elif node.type in ("default_parameter", "typed_default_parameter", "typed_parameter"):
+            name = node.child_by_field_name("name")
+            if name is not None and name.type == "identifier":
+                yield name
+        elif node.type == "assignment":
+            left = node.child_by_field_name("left")
+            if left is not None and left.type == "identifier":
+                yield left
+        return
+    if node.type == "variable_declarator":
+        name = node.child_by_field_name("name")
+        if name is not None and name.type == "identifier":
+            yield name
+    elif node.type == "formal_parameters":
+        for child in node.named_children:
+            if child.type == "identifier":
+                yield child
+    elif node.type in ("required_parameter", "optional_parameter"):
+        pat = node.child_by_field_name("pattern")
+        if pat is not None and pat.type == "identifier":
+            yield pat
+
+
+def rule_junk_identifier(ctx: Ctx) -> Iterator[Finding]:
+    """Placeholder / graveyard binding names.
+
+    Deliberately silent on 1-2 character names. Short is not the same as bad,
+    and a length heuristic is exactly the kind of inverted signal that flags
+    `canReusePreviousArticle` while letting `const xx = d[47]` through.
+    """
+    seen: set[tuple[int, int]] = set()
+    for node in ctx.nodes:
+        for name in _binding_names(node, ctx):
+            text = ctx.text(name)
+            if not (_JUNK_PATTERN.search(text) or text.lower() in _JUNK_EXACT):
+                continue
+            key = (name.start_byte, name.end_byte)
+            if key in seen:
+                continue
+            seen.add(key)
+            yield _find(
+                ctx, "junk_identifier", name,
+                f'placeholder name `{text}` — name it after what it holds, or delete it',
+            )
+
+
+# --------------------------------------------------------------------------- #
+# Rule: commented_out_code
+# --------------------------------------------------------------------------- #
+
+_COMMENT_MARK = re.compile(r"^\s*(?://+|/\*+|\*+|#+|--+)\s?")
+_CODE_HINT = re.compile(
+    r"=\s*\S|=>|\breturn\b|\bconst\b|\blet\b|\bvar\b|\bfunction\b|\bdef\b|\bclass\b"
+    r"|\bif\s*\(|\bfor\s*\(|\bimport\b|\bfrom\b|\bprint\s*\(|\bawait\b|\bself\.",
+)
+_PROSE_TAIL = re.compile(r"[.!?]\s*$")
+
+
+def _is_standalone_comment(node: Node, ctx: Ctx) -> bool:
+    """True if the comment is alone on its line (not trailing live code)."""
+    prefix = ctx.source[
+        ctx.source.rfind(b"\n", 0, node.start_byte) + 1 : node.start_byte
+    ].decode("utf-8", "replace")
+    return not prefix.strip()
+
+
+def rule_commented_out_code(ctx: Ctx) -> Iterator[Finding]:
+    """A comment whose body parses as a statement in the same language."""
+    fam = ctx.family
+    for node in ctx.nodes:
+        if node.type != "comment":
+            continue
+        if not _is_standalone_comment(node, ctx):
+            continue  # a trailing suppression on live code is not dead code
+        raw = ctx.text(node)
+        body = _COMMENT_MARK.sub("", raw).strip().rstrip("*/").strip()
+        if len(body) < 8 or _PROSE_TAIL.search(body) or not _CODE_HINT.search(body):
+            continue
+        try:
+            sub = parse(ctx.lang, body.encode("utf-8")).root_node
+        except Exception:
+            continue
+        if sub.has_error:
+            continue
+        named = [c for c in sub.named_children if c.type != "comment"]
+        if len(named) != 1:
+            continue
+        stmt = named[0]
+        if stmt.type in ("identifier", "string", "expression_statement") and stmt.type == "identifier":
+            continue
+        if stmt.type == "expression_statement":
+            inner = [c for c in stmt.named_children]
+            if not inner or inner[0].type in ("identifier", "string", "binary_expression"):
+                continue
+        if fam == "js" and stmt.type not in (
+            "expression_statement", "lexical_declaration", "variable_declaration",
+            "return_statement", "if_statement", "for_statement",
+        ):
+            continue
+        if fam == "python" and stmt.type not in (
+            "expression_statement", "assignment", "return_statement", "if_statement",
+            "for_statement", "import_statement", "call",
+        ):
+            continue
+        yield _find(
+            ctx, "commented_out_code", node,
+            "commented-out code — delete it; git remembers",
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Registry
+# --------------------------------------------------------------------------- #
+
+@dataclass(frozen=True, slots=True)
+class Rule:
+    id: str
+    fn: Callable[[Ctx], Iterator[Finding]]
+    default: bool
+    summary: str
+
+
+RULES: tuple[Rule, ...] = (
+    Rule("config_fallback", rule_config_fallback, True,
+         "env var silently defaults to a dev/local/secret value"),
+    Rule("swallowed_error", rule_swallowed_error, True,
+         "handler body discards the error"),
+    Rule("error_to_empty_success", rule_error_to_empty_success, True,
+         "handler returns an empty value, hiding failure from the caller"),
+    Rule("elision_comment", rule_elision_comment, True,
+         "truncation-artifact comment (\"rest of implementation\")"),
+    Rule("deep_nesting", rule_deep_nesting, True,
+         "control nesting depth >= 5 inside one function"),
+    Rule("narrator_comment", rule_narrator_comment, True,
+         "comment restates the statement it precedes"),
+    Rule("junk_identifier", rule_junk_identifier, True,
+         "placeholder/graveyard name (tmp, data1, foo, _old, _backup)"),
+    Rule("commented_out_code", rule_commented_out_code, False,
+         "comment that parses as code"),
+    Rule("suppression_without_reason", rule_suppression_without_reason, False,
+         "lint/type suppression with no stated reason"),
+)
+
+RULE_BY_ID = {r.id: r for r in RULES}
