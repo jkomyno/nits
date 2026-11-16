@@ -840,6 +840,14 @@
    "source": "async fn setup(client: &Client) -> Result<(), Error> {\n    let _ = client.create_index().await.unwrap();\n    let _ = client.load()?;\n    let _ = client.warm().expect(\"warm cache\");\n    Ok(())\n}\n",
    "expect": "clean",
    "note": "unwrap, expect and ? all handle the error first"
+  },
+  {
+   "id": "sw-ts-capture-for-assert",
+   "rule": "swallowed_error",
+   "lang": "ts",
+   "source": "it('rejects conflicting options', () => {\n  let error: unknown\n  try {\n    xid({ msecs: 1, secs: 1 })\n  } catch (caught) {\n    error = caught\n  }\n  expect(error).toBeInstanceOf(InvalidInputError)\n})\n",
+   "expect": "clean",
+   "note": "the error is captured and asserted on"
   }
  ]
 }

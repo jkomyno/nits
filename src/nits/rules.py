@@ -275,17 +275,18 @@ def _handler_binding(header: Node, ctx: Ctx) -> str | None:
 
 
 def _alias_only(assignment: Node, ctx: Ctx, binding: str | None) -> bool:
-    """`_ = error` or `ignored = err`: an assignment that only moves the error aside.
+    """`_ = error`: an assignment that only moves the error aside.
 
-    `items = fallback_items` is a fallback, not an alias, so it does not count.
+    `items = fallback_items` is a fallback and `error = caught` is a capture,
+    so neither counts.
     """
     lhs = assignment.child_by_field_name("left")
     rhs = assignment.child_by_field_name("right")
     if rhs is None or rhs.type not in ("identifier", "member_expression", "attribute", "subscript"):
         return False
-    if lhs is not None and ctx.text(lhs).strip().startswith("_"):
-        return True
-    return binding is not None and ctx.text(rhs).strip() == binding
+    # `error = caught` captures the error for later use; only a discard target
+    # moves it aside without handling it.
+    return lhs is not None and ctx.text(lhs).strip().startswith("_")
 
 
 def _inert_statements(nodes: list[Node], ctx: Ctx, binding: str | None = None) -> bool:

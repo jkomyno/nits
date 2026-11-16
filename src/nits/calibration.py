@@ -10,7 +10,7 @@ from __future__ import annotations
 #: rule id -> (precision, n_positive, n_negative) from the labeled corpus
 MEASURED: dict[str, tuple[float, int, int]] = {
     "config_fallback": (0.95, 9, 6),
-    "swallowed_error": (0.95, 14, 10),
+    "swallowed_error": (0.95, 14, 11),
     "error_to_empty_success": (0.95, 9, 4),
     "elision_comment": (0.95, 6, 3),
     "deep_nesting": (0.95, 4, 6),
