@@ -1,6 +1,6 @@
 # nits
 
-`nits` is an answer to [`codehygiene`](https://github.com/brianbell-x/codehygiene) ([announcement](https://x.com/brianbellx/status/2121973517273153540)), which scores code hygiene for coding agents with a model over a grid of bytes. The goal is the same, and the approach is different:
+`nits` is an answer to [`codehygiene`](https://github.com/brianbell-x/codehygiene) ([announcement](https://x.com/brianbellx/status/2121973517273153540)). It describes itself as "a weight-space compiled System One model for code readability and hygiene": 428K ternary parameters, built with no gradients or training, 11 KB on disk, reading source as a grid of bytes. The goal is the same, and the approach is different:
 
 - **It reads syntax, not whitespace.** Findings come from the tree-sitter AST, so re-indenting, swapping tabs or renaming a catch binding moves nothing, across 910 invariance checks. In `codehygiene`, a 5-deep nesting pyramid stops counting as nested after a 1-space re-indent.
 - **Every rule publishes its precision, per language.** The number comes from findings read one by one on code the rules were never written against, and the misses stay in the count. `codehygiene` reports false positives on its own benchmark cases, and one threshold applies to every kind of finding.
