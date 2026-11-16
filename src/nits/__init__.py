@@ -51,7 +51,7 @@ def check_source(
             if key in seen:
                 continue
             seen.add(key)
-            if min_precision is not None and precision_of(finding.rule) < min_precision:
+            if min_precision is not None and precision_of(finding.rule, lang) < min_precision:
                 continue
             out.append(finding)
     out.sort(key=lambda f: (f.line, f.col, f.rule))

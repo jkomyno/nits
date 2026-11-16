@@ -235,6 +235,16 @@ def test_rust_swallow_spelling_is_measured_weaker_than_typescript():
     assert nits.precision_of("swallowed_error", "ts") >= 0.80
 
 
+def test_min_precision_uses_the_language_column():
+    """Rust `let _ =` measures 0.50; the pooled 0.95 must not let it through a 0.80 filter."""
+    src = "fn f(m: M) {\n    let _ = send(m);\n}\n"
+    kept = nits.check_source(src, lang="rust", min_precision=0.80)
+    assert "swallowed_error" not in {f.rule for f in kept}
+    ts = "function f() {\n  try { parse(); } catch (err) { void err; }\n}\n"
+    kept = nits.check_source(ts, lang="ts", min_precision=0.80)
+    assert "swallowed_error" in {f.rule for f in kept}
+
+
 def test_rust_narrator_is_measured_stronger_than_typescript():
     """Rust comments its own actions; TypeScript type files attract labels."""
     assert nits.precision_of("narrator_comment", "rust") >= 0.80
