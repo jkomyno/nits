@@ -493,10 +493,10 @@ def _rust_swallowed(ctx: Ctx) -> Iterator[Finding]:
             value = node.child_by_field_name("value")
             if pattern is None or pattern.type != "_" or value is None:
                 continue
-            if value.type not in (
-                "call_expression", "macro_invocation", "await_expression", "try_expression",
-            ):
-                continue
+            if value.type not in ("call_expression", "macro_invocation", "await_expression"):
+                continue  # `let _ = f()?;` propagated the error with `?`
+            if re.search(r"\.(?:unwrap|expect)\([^()]*\)\s*$", ctx.text(value)):
+                continue  # `.unwrap()` panics on the error; nothing is dropped
             yield _find(
                 ctx, "swallowed_error", node,
                 "`let _ =` drops the result — a failing `Result` becomes silence",

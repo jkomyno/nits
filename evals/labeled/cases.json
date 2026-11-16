@@ -832,6 +832,14 @@
    "source": "def enrich(items):\n    try:\n        enriched = [fetch(i) for i in items]\n    except Exception:\n        enriched = items\n    return enriched\n",
    "expect": "clean",
    "note": "a fallback value, not an alias of the error"
+  },
+  {
+   "id": "rsw-handled-before-discard",
+   "rule": "swallowed_error",
+   "lang": "rust",
+   "source": "async fn setup(client: &Client) -> Result<(), Error> {\n    let _ = client.create_index().await.unwrap();\n    let _ = client.load()?;\n    let _ = client.warm().expect(\"warm cache\");\n    Ok(())\n}\n",
+   "expect": "clean",
+   "note": "unwrap, expect and ? all handle the error first"
   }
  ]
 }
