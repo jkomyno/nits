@@ -872,6 +872,46 @@
    "source": "/**\n * Rewrite one key of the frontmatter, leaving the\n * rest of the file untouched.\n */\nexport function rewriteKey(text: string): string {\n  return text;\n}\n",
    "expect": "clean",
    "note": "doc comment prose"
+  },
+  {
+   "id": "ji-ts-tmp-dir",
+   "rule": "junk_identifier",
+   "lang": "ts",
+   "source": "async function run() {\n  const tmp = await freshTmpDir('init');\n  return setup(tmp);\n}\n",
+   "expect": "clean",
+   "note": "tmp holds a temporary directory"
+  },
+  {
+   "id": "ji-ts-named-by-value",
+   "rule": "junk_identifier",
+   "lang": "ts",
+   "source": "const thing = sqlDataType('testext/thing', { read: (json) => json });\nexport { thing };\n",
+   "expect": "clean",
+   "note": "the value spells the name"
+  },
+  {
+   "id": "ji-ts-screaming-constant",
+   "rule": "junk_identifier",
+   "lang": "ts",
+   "source": "const EXT_OLD = 'f'.repeat(64);\nexport { EXT_OLD };\n",
+   "expect": "clean",
+   "note": "a constant, not a graveyard copy"
+  },
+  {
+   "id": "rj-named-by-value",
+   "rule": "junk_identifier",
+   "lang": "rust",
+   "source": "fn table() -> Table {\n    let bar = Column::from(\"bar\").default(\"purr\");\n    Table::from(\"foo\").add_unique_index(vec![bar])\n}\n",
+   "expect": "clean",
+   "note": "the value spells the name"
+  },
+  {
+   "id": "ji-ts-numbered-placeholder",
+   "rule": "junk_identifier",
+   "lang": "ts",
+   "source": "const data1 = await load('users');\nconst data2 = await load('posts');\nmerge(data1, data2);\n",
+   "expect": "flag",
+   "note": "numbered placeholders, with string literals that do not spell the name"
   }
  ]
 }

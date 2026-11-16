@@ -1067,7 +1067,8 @@ def _binding_names(node: Node, ctx: Ctx) -> Iterator[Node]:
 
 
 _TEMP_API = re.compile(
-    r"tempfile|tempdir|mkdtemp|mkstemp|mktemp|NamedTemporaryFile|TemporaryDirectory|TempDir|temp_dir",
+    r"tempfile|tempdir|mkdtemp|mkstemp|mktemp|NamedTemporaryFile|TemporaryDirectory|TempDir|temp_dir"
+    r"|TmpDir|tmpDir|tmp_dir|tmpdir",
 )
 
 
@@ -1079,6 +1080,21 @@ def _named_by_its_type(name: Node, ctx: Ctx) -> bool:
         return False
     words = {w.lower() for w in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+", ctx.text(declared))}
     return ctx.text(name).lower() in words
+
+
+_QUOTED = re.compile(r"[\"'`]([^\"'`]+)[\"'`]")
+
+
+def _named_by_its_value(name: Node, ctx: Ctx) -> bool:
+    """`Thing = model('Thing')`, `bar = Column::from("bar")`: the value says the same word."""
+    parent = name.parent
+    if parent is None:
+        return False
+    word = ctx.text(name).lower()
+    for literal in _QUOTED.findall(ctx.text(parent)):
+        if literal.rstrip("/").rsplit("/", 1)[-1].lower() == word:
+            return True
+    return False
 
 
 def rule_junk_identifier(ctx: Ctx) -> Iterator[Finding]:
@@ -1099,8 +1115,10 @@ def rule_junk_identifier(ctx: Ctx) -> Iterator[Finding]:
             if text.lower().startswith(("tmp", "temp")) or "_temp" in text.lower():
                 if name.parent is not None and _TEMP_API.search(ctx.text(name.parent)):
                     continue
-            if _named_by_its_type(name, ctx):
+            if _named_by_its_type(name, ctx) or _named_by_its_value(name, ctx):
                 continue
+            if re.fullmatch(r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+", text):
+                continue  # `EXT_OLD`: a SCREAMING_CASE constant is a deliberate name
             key = (name.start_byte, name.end_byte)
             if key in seen:
                 continue
