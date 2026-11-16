@@ -2,7 +2,7 @@
 
 `nits` checks the lines a change touched for nine kinds of sloppy code, such as swallowed errors, failures returned as empty values, dev defaults on environment variables, and comments that stand in for code nobody wrote. It parses Python, TypeScript/JavaScript and Rust with tree-sitter, reports AST nodes rather than lines, and is advisory by default.
 
-The one idea that sets it apart is that every rule carries a precision number, and the number is printed next to every finding. That number is the lower of two measurements, taken per language. One comes from a labeled corpus written alongside the rules. The other comes from findings read one by one against the source, on code that was never used while writing the rules. Seven cells in the table below fall under the 0.80 bar, and they stay there in plain sight.
+The one idea that sets it apart is that every rule carries a precision number, and the number is printed next to every finding. That number is the lower of two measurements, taken per language. One comes from a labeled corpus written alongside the rules. The other comes from findings read one by one against the source, on code that was never used while writing the rules. Nine measured cells in the table below fall under the 0.80 bar, and they stay there in plain sight.
 
 ```console
 $ nits diff
@@ -40,15 +40,15 @@ Advisory is the default because a mandatory gate on a probabilistic signal gets 
 
 | Rule | Default | ts | py | rs | Held-out sample, true / read | Catches |
 |---|---|---|---|---|---|---|
-| `config_fallback` | on | 0.95 | 0.95~ | 0.95~ | ts 10/10 | `process.env.X \|\| 'localhost'`, `os.getenv('X', 'changeme')`, `env::var("X").unwrap_or("localhost".into())` |
-| `swallowed_error` | on | **0.77** | **0.71** | **0.53** | ts 20/26, py 12/17, rs 10/19 | a handler body with no effect, `_ = error`, `void err`, `r.ok();`, `let _ = send()`, `Err(_) => {}` |
-| `error_to_empty_success` | on | 0.95 | 0.95 | **0.00** | ts 19/20, py 8/8, rs 0/1, 4/4 unsplit | a handler returning `{}`, `[]` or `None`, `Err(e) => Vec::new()` |
-| `elision_comment` | on | 0.95 | 0.95~ | 0.95~ | ts 3/3 | `// ... rest of the implementation`, `TODO: implement` |
-| `deep_nesting` | on | **0.74** | 0.95 | 0.95 | ts 14/19, py 4/4, rs 1/1 | control nesting of depth 5 or more in one function, counted on the AST |
-| `narrator_comment` | on | **0.61** | 0.95 | 0.92 | ts 36/59, py 6/6, rs 11/12 | a comment restating the statement it precedes |
-| `junk_identifier` | on | 0.95 | 0.95~ | 0.91 | ts 8/8, rs 10/11, 1/1 unsplit | `tmp`, `data1`, `foo`, `_old`, `_backup` |
-| `commented_out_code` | opt-in | 0.82 | **0.75~** | **0.33** | ts 9/11, rs 2/6, 7/7 unsplit | a comment whose body parses as a statement |
-| `suppression_without_reason` | opt-in | 0.95 | 0.95 | 0.95 | ts 2/2, py 1/1, rs 1/1 | a bare `# noqa` or `@ts-ignore`, a crate-wide `#![allow]` |
+| `config_fallback` | on | 0.95 | 0.95~ | 0.95~ | ts 11/11 | `process.env.X \|\| 'localhost'`, `os.getenv('X', 'changeme')`, `env::var("X").unwrap_or("localhost".into())` |
+| `swallowed_error` | on | 0.83 | **0.71** | **0.48** | ts 30/36, py 12/17, rs 14/29 | a handler body with no effect, `_ = error`, `void err`, `r.ok();`, `let _ = send()`, `Err(_) => {}` |
+| `error_to_empty_success` | on | 0.95 | 0.95 | **0.00** | ts 29/30, py 8/8, rs 0/8, 4/4 unsplit | a handler returning `{}`, `[]` or `None`, `Err(e) => Vec::new()` |
+| `elision_comment` | on | **0.30** | **0.30~** | **0.30~** | ts 3/10 | `// ... rest of the implementation`, `TODO: implement` |
+| `deep_nesting` | on | 0.83 | 0.95 | 0.95 | ts 24/29, py 4/4, rs 11/11 | control nesting of depth 5 or more in one function, counted on the AST |
+| `narrator_comment` | on | **0.59** | 0.95 | 0.82 | ts 41/69, py 6/6, rs 18/22 | a comment restating the statement it precedes |
+| `junk_identifier` | on | **0.47** | **0.62~** | **0.75** | ts 8/17, rs 12/16, 1/1 unsplit | `tmp`, `data1`, `foo`, `_old`, `_backup` |
+| `commented_out_code` | opt-in | **0.41** | **0.57~** | **0.60** | ts 9/22, rs 9/15, 7/7 unsplit | a comment whose body parses as a statement |
+| `suppression_without_reason` | opt-in | 0.95 | 0.95 | 0.95 | ts 2/2, py 1/1, rs 11/11 | a bare `# noqa` or `@ts-ignore`, a crate-wide `#![allow]` |
 
 A cell without `~` has a held-out sample in that language. A cell with `~` falls back to every sample of that rule pooled together, which is a weaker claim. "Unsplit" samples were recorded without a language and count toward the pooled number only. `src/nits/heldout.py` lists each sample with its seed, the commit it was drawn from, and what each miss was.
 
@@ -56,17 +56,20 @@ A finding counts as true when the code matches what the rule says it reports. Wh
 
 Precision is capped at 0.95. A rule with no observed false positive is not a perfect rule, it is an under-measured one.
 
-Every number is a floor. When a sample showed a bug, I fixed the rule, added a labeled case, and kept the sample's misses in the count. Later samples on code nobody had read add to it.
+Every number is a floor. When a sample showed a bug, I fixed the rule, added a labeled case, and kept the sample's misses in the count. Later samples on code nobody had read add to it. `elision_comment` at 0.30 is the clearest case: all seven misses from `prisma/prisma` were prose such as "same as above", which the rule no longer reports, but the count keeps them until new samples outweigh them.
 
 The cells below 0.80 have causes I can name:
 
-- `swallowed_error` everywhere. In TypeScript, the misses were a queue tail whose source promise is returned to the caller, a `null` result the caller checks, and discards explained by a comment on the line above, which the rule now reads. In Python, they were explanatory comments inside `except` that the rule did not see and fallback assignments read as no-ops, both fixed since. In Rust, `let _ = tracing_subscriber::fmt::try_init()` and `let _ = provider.install_default()` discard a `Result` on purpose, and syntax alone cannot tell that apart from a dropped error.
-- `narrator_comment` on TypeScript (0.61). Label comments look like narration: byte-layout notes such as `// Random (5 bytes) -> bytes 4-8`, field names, type labels. On Rust the same rule measures 0.92, because Rust code tends to comment its own actions.
-- `deep_nesting` on TypeScript (0.74). Five of the first nine counted `catch` as a level on top of its `try`. That is fixed, and the fresh sample read 10 of 10.
-- `commented_out_code` on Rust (0.33). The first four were code examples in `///` doc comments, which the rule now skips. The fresh sample read 2 of 2. Python has no sample of its own and inherits the pooled 0.75.
-- `error_to_empty_success` on Rust (0.00). One finding is all the held-out Rust code produced, and it was `Err(TryRecvError::Empty) => None`, where "empty" is not a failure.
+- `swallowed_error` on Python and Rust. In Python, the misses were explanatory comments inside `except` that the rule did not see and fallback assignments read as no-ops, both fixed since. In Rust, `let _ =` discards things that are not errors (`std::mem::replace`, `stack.pop()`) and `Result`s that are dropped on purpose (`try_init()`, `install_default()`), and syntax alone cannot tell those apart from a dropped error.
+- `error_to_empty_success` on Rust (0/8). `Err(_) => None` in a parser that returns `Option`, `Err(AlreadyDealtWith) => Vec::new()` after the error was reported, and a `binary_search` miss are all idiomatic. The Rust spelling of this rule does not work, and the TypeScript and Python spellings do.
+- `narrator_comment` on TypeScript (0.59). Label comments look like narration: byte-layout notes such as `// Random (5 bytes) -> bytes 4-8`, test-step IDs, field names. On Rust the same rule measures 0.82.
+- `junk_identifier` on TypeScript and Rust. `tmp` holding a temporary directory, `thing = sqlDataType('testext/thing')` and SCREAMING_CASE constants such as `EXT_OLD` were all accurate names, and all are exempt now. `allow_deprecated` still matches the `_deprecated` suffix.
+- `elision_comment`, above.
+- `commented_out_code` (opt-in). Code-shaped lines inside prose comments, such as API translation notes and worked examples, read as dead code. Requiring a whole comment run to be code would drop real cases where one dead line sits under a prose line, so this one is not fixed.
 
-Below-bar cells stay on and keep printing, but they are excluded from `--gate 0.80`, from `--min-precision 0.80`, and from the reward, per language. `swallowed_error`, `narrator_comment` and `deep_nesting` are on by default even though their pooled precision is 0.68, 0.69 and 0.79. I don't expect more heuristics to fix `narrator_comment` on TypeScript. That needs labels mined from real commits.
+Below-bar cells stay on and keep printing, but they are excluded from `--gate 0.80`, from `--min-precision 0.80`, and from the reward, per language. Four rules on by default have a pooled precision under 0.80: `elision_comment` (0.30), `junk_identifier` (0.62), `narrator_comment` (0.67) and `swallowed_error` (0.68).
+
+A comment counts as a reason wherever the rules look for one, inside a handler or on the line above a `.catch(() => {})`, `.ok();` or `let _ =`. That is deliberate, and it has a cost: a comment that only narrates, such as `// and clean the FS` above `.ok();`, also silences the finding.
 
 ## Why it works on nodes
 
@@ -93,17 +96,17 @@ The lesson I took from it has nothing to do with neural nets. A hygiene signal e
 
 ### Labeled corpus
 
-120 cases. 51 are TypeScript, 35 Python and 34 Rust. 14 are adversarial evasions that defeat indentation-based tools. 8 are anti-inversion guards, code where nothing may fire, such as descriptive names.
+130 cases. 57 are TypeScript, 35 Python and 38 Rust. 14 are adversarial evasions that defeat indentation-based tools. 8 are anti-inversion guards, code where nothing may fire, such as descriptive names.
 
 ```
 rule                             prec    rec   tp  fp  fn  tn
 config_fallback                  1.00   1.00    9   0   0   6
-swallowed_error                  1.00   1.00   14   0   0  11
-error_to_empty_success           1.00   1.00    9   0   0   4
-elision_comment                  1.00   1.00    6   0   0   3
+swallowed_error                  1.00   1.00   15   0   0  12
+error_to_empty_success           1.00   1.00    9   0   0   5
+elision_comment                  1.00   1.00    6   0   0   5
 deep_nesting                     1.00   1.00    4   0   0   6
 narrator_comment                 1.00   1.00    6   0   0   6
-junk_identifier                  1.00   1.00    4   0   0   5
+junk_identifier                  1.00   1.00    5   0   0   9
 commented_out_code               1.00   1.00    3   0   0   6
 suppression_without_reason       1.00   1.00    4   0   0   6
 
@@ -121,7 +124,9 @@ These repositories were never read while writing a rule. The table reports findi
 | [`jkomyno/esmwell` at `0fe5d07`](https://github.com/jkomyno/esmwell/tree/0fe5d07af718736e5a3cd59b7fd839c268789015) | TS | 113 | 18,555 | 7 | 0.04 |
 | [`OrchestratorInc/agent-orchestrator` at `4505071`](https://github.com/OrchestratorInc/agent-orchestrator/tree/450507193ee3988ded574547132c749256ab8454) | TS | 174 | 42,148 | 217 | 0.51 |
 | [`jkomyno/uniku` at `66dfbde`](https://github.com/jkomyno/uniku/tree/66dfbdeff0d8a7483beaa98b83c106f6092efb29) | TS | 176 | 22,217 | 21 | 0.09 |
-| [`mastra-ai/mastra` at `ff4106b`](https://github.com/mastra-ai/mastra/tree/ff4106b87bef3535162f2d812b6f42a8a9fd1924) | TS | 9,381 | 2,124,326 | 9,392 | 0.44 |
+| [`mastra-ai/mastra` at `ff4106b`](https://github.com/mastra-ai/mastra/tree/ff4106b87bef3535162f2d812b6f42a8a9fd1924) | TS | 9,381 | 2,124,326 | 9,385 | 0.44 |
+| [`prisma/prisma` at `17385f2`](https://github.com/prisma/prisma/tree/17385f2d86eefa3783e86d94534168a224806c0a) | TS | 7,109 | 1,281,434 | 537 | 0.04 |
+| [`prisma/prisma-engines` at `d1b3f37`](https://github.com/prisma/prisma-engines/tree/d1b3f377ca835d73fd50954a5e22128b9ebdd6b8) | Rust | 1,646 | 395,404 | 390 | 0.10 |
 | [`mvanhorn/last30days-skill` at `ae8c323`](https://github.com/mvanhorn/last30days-skill/tree/ae8c32327f86f516894a2d94edc6127314465708) | Py | 85 | 36,876 | 145 | 0.39 |
 | TypeScript library (external) | TS | 192 | 44,470 | 35 | 0.08 |
 | TypeScript SDK (external), 400-file sample | TS | 400 | 85,510 | 244 | 0.29 |
@@ -139,7 +144,7 @@ The linked rows and the TypeScript library were measured with the current rules 
 
 ### Invariance
 
-840 strict checks, 7 meaning-preserving transforms over the 120 cases, all passing.
+910 strict checks, 7 meaning-preserving transforms over the 130 cases, all passing.
 
 | Transform | Result |
 |---|---|
@@ -148,7 +153,7 @@ The linked rows and the TypeScript library were measured with the current rules 
 | `quote_style` | findings identical, and a no-op on Rust, where `'x'` is a char |
 | `rename_catch_binding` | findings identical |
 
-Paraphrasing the words in comments changes the findings of 6 of 120 cases (5%), all `narrator_comment`. A rule that compares comment text with identifier text will always move when the text does, so the suite reports this coupling instead of hiding it.
+Paraphrasing the words in comments changes the findings of 6 of 130 cases (5%), all `narrator_comment`. A rule that compares comment text with identifier text will always move when the text does, so the suite reports this coupling instead of hiding it.
 
 ## What it doesn't measure
 

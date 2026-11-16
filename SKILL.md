@@ -15,10 +15,10 @@ Two kinds of finding live here, and they need different treatment:
 
 - **High precision (>= 0.90):** fix them. The pattern is nearly always wrong.
 - **Below 0.80 in that language** — every finding prints its precision as `pNN`.
-  Today that covers `swallowed_error` everywhere, `narrator_comment` and
-  `deep_nesting` on TypeScript, and `commented_out_code` and
-  `error_to_empty_success` on Rust (`nits rules` has the current matrix). Use
-  these as a prompt to read the line, nothing more.
+  Today that covers `swallowed_error` on Python and Rust, `narrator_comment`,
+  `junk_identifier` and `elision_comment` on TypeScript, `junk_identifier` and
+  `error_to_empty_success` on Rust, and `commented_out_code` (`nits rules` has
+  the current matrix). Use these as a prompt to read the line, nothing more.
   Do not mechanically delete the comment to make the finding go away; a comment
   that explains *why* is correct and `nits` cannot always tell the difference.
 
@@ -44,7 +44,7 @@ uv run --project <path-to-nits> nits diff --json
 | `config_fallback` | Remove the dev default or fail fast. Never default a secret to `""`, `localhost`, or `changeme`. In Rust that means `unwrap_or`, not `expect("... must be set")`. |
 | `elision_comment` | Write the code or delete the line. `// ... rest of the implementation` is a truncation artifact, not documentation. |
 | `deep_nesting` | Invert conditions into guard clauses, or extract a helper. Do not re-indent to reduce the count; depth is structural and re-indenting changes nothing. |
-| `narrator_comment` | Delete it only if it restates the line below. If it explains why, keep it and move on — on TypeScript treat it (0.61) as "look here". |
+| `narrator_comment` | Delete it only if it restates the line below. If it explains why, keep it and move on — on TypeScript treat it (0.59) as "look here". |
 | `junk_identifier` | Rename to what the value holds. Do not rename a clear name to a shorter one to satisfy anything. |
 | `commented_out_code` | Delete it. Git remembers. |
 | `suppression_without_reason` | Name the specific rule or error code, or fix the cause. An unscoped suppression hides errors nobody has read. In Rust only `#![allow(...)]` is reported; item-scoped `#[allow(...)]` already names its lint. |
