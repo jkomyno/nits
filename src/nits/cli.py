@@ -17,7 +17,7 @@ from . import check_source, check_paths
 from . import rules as rules_mod
 from .calibration import precision_of
 from .heldout import HELDOUT_BY_LANG
-from .diff import git_diff, parse_diff
+from .diff import ChangedFile, git_diff, parse_diff, untracked_files
 from .evaluate import (
     invariance, load_cases, score, task_metric, wildcard_failures, write_calibration,
 )
@@ -138,6 +138,9 @@ def cmd_diff(args) -> int:
     diff_args = ["--staged"] if args.staged else [args.base]
     try:
         changed = parse_diff(git_diff(diff_args, cwd=args.cwd))
+        if not args.staged:
+            for path in untracked_files(args.cwd):
+                changed.setdefault(path, ChangedFile(path, ((1, 10**9),), True))
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -314,7 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
     common(pc)
     pc.set_defaults(func=cmd_check)
 
-    pd = sub.add_parser("diff", help="only lines added by a change")
+    pd = sub.add_parser("diff", help="only lines added by a change, plus untracked files")
     pd.add_argument("--base", default="HEAD")
     pd.add_argument("--staged", action="store_true")
     pd.add_argument("--cwd", default=None)

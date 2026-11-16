@@ -76,6 +76,19 @@ def parse_diff(diff_text: str) -> dict[str, ChangedFile]:
     return out
 
 
+def untracked_files(cwd: str | None = None) -> list[str]:
+    """Files Git does not track yet and does not ignore.
+
+    `git diff` never lists them, so without this a brand-new file that was not
+    yet `git add`-ed would be invisible to `nits diff`.
+    """
+    cmd = ["git", "ls-files", "--others", "--exclude-standard", "-z"]
+    res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"git ls-files failed: {res.stderr.strip()}")
+    return [p for p in res.stdout.split("\0") if p]
+
+
 def git_diff(args: list[str] | None = None, cwd: str | None = None) -> str:
     cmd = ["git", "diff", "--no-color", "-U0", "--no-ext-diff", *(args or ["HEAD"])]
     res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
