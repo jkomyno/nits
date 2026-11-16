@@ -549,6 +549,8 @@ def rule_swallowed_error(ctx: Ctx) -> Iterator[Finding]:
                 continue
             if _documented(body, ctx):
                 continue
+            if header.type == "call_expression" and _explained_above(header, ctx):
+                continue  # `.catch(() => {})`: the reason sits on the line above
             if any(s.type == "return_statement" for s in stmts):
                 continue  # error_to_empty_success owns returns
             if _inert_statements(stmts, ctx):
