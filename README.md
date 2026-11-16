@@ -1,5 +1,14 @@
 # nits
 
+`nits` is an answer to [`codehygiene`](https://github.com/brianbell-x/codehygiene) ([announcement](https://x.com/brianbellx/status/2121973517273153540)), which scores code hygiene for coding agents with a model over a grid of bytes. The goal is the same, and the approach is different:
+
+- **It reads syntax, not whitespace.** Findings come from the tree-sitter AST, so re-indenting, swapping tabs or renaming a catch binding moves nothing, across 910 invariance checks. In `codehygiene`, a 5-deep nesting pyramid stops counting as nested after a 1-space re-indent.
+- **Every rule publishes its precision, per language.** The number comes from findings read one by one on code the rules were never written against, and the misses stay in the count. `codehygiene` reports false positives on its own benchmark cases, and one threshold applies to every kind of finding.
+- **It flags less on real code.** On the same external TypeScript SDK, `nits` reports 0.29 findings per 100 lines against 2.36. It catches `_ = error` and comments that restate the next line, which `codehygiene` misses, and it leaves descriptive names such as `canReusePreviousArticle` alone.
+- **Its reward cannot be bought with padding.** In `codehygiene`'s own benchmark, the Rust target grew 56% while its reward rose. `nits.reward` is zero unless the tests pass untouched, and it penalises growth.
+
+It covers 3 languages to `codehygiene`'s 11, and the full comparison is [below](#why-it-works-on-nodes).
+
 `nits` checks the lines a change touched for nine kinds of sloppy code, such as swallowed errors, failures returned as empty values, dev defaults on environment variables, and comments that stand in for code nobody wrote. It parses Python, TypeScript/JavaScript and Rust with tree-sitter, reports AST nodes rather than lines, and is advisory by default.
 
 The one idea that sets it apart is that every rule carries a precision number, and the number is printed next to every finding. That number is the lower of two measurements, taken per language. One comes from a labeled corpus written alongside the rules. The other comes from findings read one by one against the source, on code that was never used while writing the rules. Nine measured cells in the table below fall under the 0.80 bar, and they stay there in plain sight.
@@ -77,9 +86,9 @@ Findings carry the AST span they came from. Re-indenting a file cannot create or
 
 Error handlers are matched by shape. `except E: pass`, `except E as e: _ = e` and `catch (err) { void err; }` are the same node shape, so renaming the binding changes nothing. A handler that contains an explanatory comment is not reported, and neither is a `.catch(() => {})` with one on the line above, because silence is the failure mode and a comment is the opposite of silence. A handler returning `false` is not reported either, since a boolean is a decision rather than an empty value.
 
-The alternative I measured against is a byte-grid model with hand-tuned thresholds and no parser. It reads whitespace, so its signals move when the indentation does, and they point the wrong way on real code.
+`codehygiene` is a byte-grid model with hand-tuned thresholds and no parser. It reads whitespace, so its signals move when the indentation does, and they point the wrong way on real code.
 
-| | byte-grid tool at `423c7e1` | `nits` |
+| | [`codehygiene` at `423c7e1`](https://github.com/brianbell-x/codehygiene/tree/423c7e1) | `nits` |
 |---|---|---|
 | Files flagged, on the external TypeScript SDK below | 50% of 298 | not measured |
 | Findings per 100 lines, same tree | 2.36 | 0.29 |
@@ -176,7 +185,7 @@ nits.reward(source, lang="ts", tests_passed=pass_rate, baseline_source=before)
 
 The reward is zero unless every test passes and no test file was edited. A passing solution gets 1.0, plus up to 0.25 as the density of findings at precision 0.80 or above, in that language, falls toward zero. Growth over `baseline_source` costs up to 0.20, and added lines do not dilute the density, so padding cannot buy score. Without `baseline_source` there is no growth penalty.
 
-The penalty answers a measured failure. In the byte-grid tool's own benchmark, its Rust target grew 56%, from 312 to 488 lines, while its reward rose from 1.0237 to 1.2063.
+The penalty answers a measured failure. In `codehygiene`'s own benchmark, its Rust target grew 56%, from 312 to 488 lines, while its reward rose from 1.0237 to 1.2063.
 
 ## Development
 
