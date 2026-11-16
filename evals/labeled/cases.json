@@ -788,7 +788,7 @@
   {
    "id": "co-ts-triple-slash",
    "rule": "commented_out_code",
-   "lang": "ts",
+   "lang": "tsx",
    "source": "/// <reference types=\"vite/client\" />\nimport { createRoot } from \"react-dom/client\"\n",
    "expect": "clean",
    "note": "compiler directive"
