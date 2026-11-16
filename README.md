@@ -1,22 +1,15 @@
 # nits
 
-`nits` is an answer to [`codehygiene`](https://github.com/brianbell-x/codehygiene) ([announcement](https://x.com/brianbellx/status/2121973517273153540)). It describes itself as "a weight-space compiled System One model for code readability and hygiene": 428K ternary parameters, built with no gradients or training, 11 KB on disk, reading source as a grid of bytes. The goal is the same, and the approach is different:
+**Diff-scoped code hygiene for Python, TypeScript and Rust. Advisory by default, and every finding prints the precision of the rule that produced it.**
 
-- **It reads syntax, not whitespace.** Findings come from the tree-sitter AST, so re-indenting, swapping tabs or renaming a catch binding moves nothing, across 910 invariance checks. In `codehygiene`, a 5-deep nesting pyramid stops counting as nested after a 1-space re-indent.
-- **Every rule publishes its precision, per language.** The number comes from findings read one by one on code the rules were never written against, and the misses stay in the count. `codehygiene` reports false positives on its own benchmark cases, and one threshold applies to every kind of finding.
-- **It flags less on real code.** On the same external TypeScript SDK, `nits` reports 0.29 findings per 100 lines against 2.36. It catches `_ = error` and comments that restate the next line, which `codehygiene` misses, and it leaves descriptive names such as `canReusePreviousArticle` alone.
-- **Its reward cannot be bought with padding.** In `codehygiene`'s own benchmark, the Rust target grew 56% while its reward rose. `nits.reward` is zero unless the tests pass untouched, and it penalises growth.
+`nits` parses the lines a change touched with tree-sitter and reports nine kinds of sloppy code: swallowed errors, failures returned as empty values, dev defaults sitting on environment variables, comments that restate the line below them or stand in for code nobody wrote. Findings point at AST nodes, so re-indenting a file cannot create or destroy one.
 
-It covers 3 languages to `codehygiene`'s 11, and the full comparison is [below](#why-it-works-on-nodes).
-
-`nits` checks the lines a change touched for nine kinds of sloppy code, such as swallowed errors, failures returned as empty values, dev defaults on environment variables, and comments that stand in for code nobody wrote. It parses Python, TypeScript/JavaScript and Rust with tree-sitter, reports AST nodes rather than lines, and is advisory by default.
-
-The one idea that sets it apart is that every rule carries a precision number, and the number is printed next to every finding. That number is the lower of two measurements, taken per language. One comes from a labeled corpus written alongside the rules. The other comes from findings read one by one against the source, on code that was never used while writing the rules. Nine measured cells in the table below fall under the 0.80 bar, and they stay there in plain sight.
+Every rule carries a measured precision per language, and that number is printed next to every finding.
 
 ```console
 $ nits diff
 src/a.ts
-      5:5   p0.95  error_to_empty_success       failure is returned as an empty value — the caller cannot tell this apart from success
+      5:5   p0.95  error_to_empty_success          failure is returned as an empty value — the caller cannot tell this apart from success
         | catch {
 
 1 finding(s) across 1 file(s). Advisory: nothing was blocked.
@@ -52,54 +45,62 @@ Advisory is the default because a mandatory gate on a probabilistic signal gets 
 | `config_fallback` | on | 0.95 | 0.95~ | 0.95~ | ts 11/11 | `process.env.X \|\| 'localhost'`, `os.getenv('X', 'changeme')`, `env::var("X").unwrap_or("localhost".into())` |
 | `swallowed_error` | on | 0.83 | **0.71** | **0.48** | ts 30/36, py 12/17, rs 14/29 | a handler body with no effect, `_ = error`, `void err`, `r.ok();`, `let _ = send()`, `Err(_) => {}` |
 | `error_to_empty_success` | on | 0.95 | 0.95 | **0.00** | ts 29/30, py 8/8, rs 0/8, 4/4 unsplit | a handler returning `{}`, `[]` or `None`, `Err(e) => Vec::new()` |
-| `elision_comment` | opt-in | **0.30** | **0.30~** | **0.30~** | ts 3/10 | `// ... rest of the implementation`, `TODO: implement` |
-| `deep_nesting` | on | 0.83 | 0.95 | 0.95 | ts 24/29, py 4/4, rs 11/11 | control nesting of depth 5 or more in one function, counted on the AST |
 | `narrator_comment` | on | **0.59** | 0.95 | 0.82 | ts 41/69, py 6/6, rs 18/22 | a comment restating the statement it precedes |
+| `deep_nesting` | on | 0.83 | 0.95 | 0.95 | ts 24/29, py 4/4, rs 11/11 | control nesting of depth 5 or more in one function, counted on the AST |
+| `elision_comment` | opt-in | **0.30** | **0.30~** | **0.30~** | ts 3/10 | `// ... rest of the implementation`, `TODO: implement` |
 | `junk_identifier` | opt-in | **0.47** | **0.62~** | **0.75** | ts 8/17, rs 12/16, 1/1 unsplit | `tmp`, `data1`, `foo`, `_old`, `_backup` |
 | `commented_out_code` | opt-in | **0.41** | **0.57~** | **0.60** | ts 9/22, rs 9/15, 7/7 unsplit | a comment whose body parses as a statement |
 | `suppression_without_reason` | opt-in | 0.95 | 0.95 | 0.95 | ts 2/2, py 1/1, rs 11/11 | a bare `# noqa` or `@ts-ignore`, a crate-wide `#![allow]` |
 
-A cell without `~` has a held-out sample in that language. A cell with `~` falls back to every sample of that rule pooled together, which is a weaker claim. "Unsplit" samples were recorded without a language and count toward the pooled number only. `src/nits/heldout.py` lists each sample with its seed, the commit it was drawn from, and what each miss was.
+Run `nits diff --all` to turn the opt-in rules on.
+
+A rule is on by default only if at least one language measures 0.80 or above. `elision_comment` (best cell 0.30) and `junk_identifier` (best cell 0.75) do not reach that bar. `narrator_comment` and `swallowed_error` stay on, although their pooled precision is 0.67 and 0.68, because `narrator_comment` clears the bar on Python and Rust and `swallowed_error` clears it on TypeScript.
+
+Below-bar cells keep printing. They are excluded from `--gate 0.80`, from `--min-precision 0.80` and from the reward, per language.
+
+## Where the numbers come from
+
+Each cell is the lower of two measurements, taken per language.
+
+One comes from a labeled corpus of 130 cases written alongside the rules. The other comes from findings read one by one against the source, on code that was never used while writing the rules. Misses stay in the count. A cell without `~` has its own held-out sample in that language. A cell with `~` falls back to every sample of that rule pooled together, which is a weaker claim. "Unsplit" samples were recorded without a language and count toward the pooled number only. `src/nits/heldout.py` lists each sample with its seed, the commit it was drawn from, and what each miss was.
 
 A finding counts as true when the code matches what the rule says it reports. Whether acting on it makes the code better is the task metric, which is not measured.
 
 Precision is capped at 0.95. A rule with no observed false positive is not a perfect rule, it is an under-measured one.
 
-Every number is a floor. When a sample showed a bug, I fixed the rule, added a labeled case, and kept the sample's misses in the count. Later samples on code nobody had read add to it. `elision_comment` at 0.30 is the clearest case: all seven misses from `prisma/prisma` were prose such as "same as above", which the rule no longer reports, but the count keeps them until new samples outweigh them.
+Every number is a floor. When a sample showed a bug, I fixed the rule, added a labeled case, and kept the sample's misses in the count. Later samples on code nobody had read add to it. `elision_comment` at 0.30 is the clearest case. All seven misses from `prisma/prisma` were prose such as "same as above", which the rule no longer reports, but the count keeps them until new samples outweigh them.
 
-The cells below 0.80 have causes I can name:
+The cells under the 0.80 bar have causes I can name.
 
-- `swallowed_error` on Python and Rust. In Python, the misses were explanatory comments inside `except` that the rule did not see and fallback assignments read as no-ops, both fixed since. In Rust, `let _ =` discards things that are not errors (`std::mem::replace`, `stack.pop()`) and `Result`s that are dropped on purpose (`try_init()`, `install_default()`), and syntax alone cannot tell those apart from a dropped error.
-- `error_to_empty_success` on Rust (0/8). `Err(_) => None` in a parser that returns `Option`, `Err(AlreadyDealtWith) => Vec::new()` after the error was reported, and a `binary_search` miss are all idiomatic. The Rust spelling of this rule does not work, and the TypeScript and Python spellings do.
+- `swallowed_error` on Python and Rust. In Python, the misses were explanatory comments inside `except` that the rule did not see, and fallback assignments read as no-ops. Both are fixed since. In Rust, `let _ =` discards things that are not errors (`std::mem::replace`, `stack.pop()`) and `Result`s that are dropped on purpose (`try_init()`, `install_default()`). Syntax alone cannot tell those apart from a dropped error.
+- `error_to_empty_success` on Rust (0/8). `Err(_) => None` in a parser that returns `Option`, `Err(AlreadyDealtWith) => Vec::new()` after the error was reported, and a `binary_search` miss are all idiomatic. The Rust spelling of this rule does not work. The TypeScript and Python spellings do.
 - `narrator_comment` on TypeScript (0.59). Label comments look like narration: byte-layout notes such as `// Random (5 bytes) -> bytes 4-8`, test-step IDs, field names. On Rust the same rule measures 0.82.
 - `junk_identifier` on TypeScript and Rust. `tmp` holding a temporary directory, `thing = sqlDataType('testext/thing')` and SCREAMING_CASE constants such as `EXT_OLD` were all accurate names, and all are exempt now. `allow_deprecated` still matches the `_deprecated` suffix.
 - `elision_comment`, above.
-- `commented_out_code` (opt-in). Code-shaped lines inside prose comments, such as API translation notes and worked examples, read as dead code. Requiring a whole comment run to be code would drop real cases where one dead line sits under a prose line, so this one is not fixed.
+- `commented_out_code` (opt-in). Code-shaped lines inside prose comments, such as API translation notes and worked examples, read as dead code. Requiring a whole comment run to be code would drop real cases where one dead line sits under a prose line, so this one stays unfixed.
 
-Below-bar cells keep printing, but they are excluded from `--gate 0.80`, from `--min-precision 0.80`, and from the reward, per language. A rule is on by default only if at least one language measures 0.80 or above. `elision_comment` (best cell 0.30) and `junk_identifier` (best cell 0.75) do not, so they run only with `--all`, like `commented_out_code`. `narrator_comment` and `swallowed_error` stay on, although their pooled precision is 0.67 and 0.68, because `narrator_comment` reaches the bar on Python and Rust and `swallowed_error` on TypeScript.
+A comment counts as a reason wherever the rules look for one, inside a handler or on the line above a `.catch(() => {})`, `.ok();` or `let _ =`. That is deliberate, and it has a cost. A comment that only narrates, such as `// and clean the FS` above `.ok();`, also silences the finding.
 
-A comment counts as a reason wherever the rules look for one, inside a handler or on the line above a `.catch(() => {})`, `.ok();` or `let _ =`. That is deliberate, and it has a cost: a comment that only narrates, such as `// and clean the FS` above `.ok();`, also silences the finding.
-
-## Why it works on nodes
+## Nodes, not lines
 
 Findings carry the AST span they came from. Re-indenting a file cannot create or destroy a finding, and a continuation line cannot pass for nesting. A nested function restarts the depth count, so extracting a helper fixes the finding instead of tripping it, and `else if` chains do not accumulate.
 
 Error handlers are matched by shape. `except E: pass`, `except E as e: _ = e` and `catch (err) { void err; }` are the same node shape, so renaming the binding changes nothing. A handler that contains an explanatory comment is not reported, and neither is a `.catch(() => {})` with one on the line above, because silence is the failure mode and a comment is the opposite of silence. A handler returning `false` is not reported either, since a boolean is a decision rather than an empty value.
 
-`codehygiene` is a byte-grid model with hand-tuned thresholds and no parser. It reads whitespace, so its signals move when the indentation does, and they point the wrong way on real code.
+`nits` is an answer to [`codehygiene`](https://github.com/brianbell-x/codehygiene) ([announcement](https://x.com/brianbellx/status/2121973517273153540)), which describes itself as "a weight-space compiled System One model for code readability and hygiene". It has 428K ternary parameters, no gradients or training, 11 KB on disk, and it reads source as a grid of bytes. Same goal, different approach. `codehygiene` is a byte-grid model with hand-tuned thresholds and no parser, so its signals move when the indentation does, and they point the wrong way on real code.
 
 | | [`codehygiene` at `423c7e1`](https://github.com/brianbell-x/codehygiene/tree/423c7e1) | `nits` |
 |---|---|---|
-| Files flagged, on the external TypeScript SDK below | 50% of 298 | not measured |
-| Findings per 100 lines, same tree | 2.36 | 0.29 |
+| Findings per 100 lines, on the external TypeScript SDK below | 2.36 | 0.29 |
 | 1-space re-indent of a 5-deep pyramid | nesting disappears | unchanged |
 | `except Exception as error: _ = error` | not reported | reported |
 | `# Loop over the items` before `for item in items` | not reported | reported |
 | `const canReusePreviousArticle = …` | reported as poor naming | not reported |
 | `const xx = d[47];` | not reported | not reported, a known gap |
+| Threshold | one, for every kind of finding | per rule, per language |
 | Languages | 11 | 3 |
 
-The lesson I took from it has nothing to do with neural nets. A hygiene signal earns trust by publishing what it gets wrong, and a gate nobody can afford to turn on is worth nothing.
+The lesson I took from `codehygiene` has nothing to do with neural nets. A hygiene signal earns trust by publishing what it gets wrong, and a gate nobody can afford to turn on is worth nothing.
 
 ## Measurements
 
@@ -164,6 +165,21 @@ The linked rows were measured with the current rules at the commit shown, over t
 
 Paraphrasing the words in comments changes the findings of 6 of 130 cases (5%), all `narrator_comment`. A rule that compares comment text with identifier text will always move when the text does, so the suite reports this coupling instead of hiding it.
 
+## Reward
+
+For RL loops, where hygiene is a term in the reward:
+
+```python
+import nits
+
+nits.reward(source, lang="ts", tests_passed=pass_rate, baseline_source=before)
+# between 0.0 and 1.25
+```
+
+The reward is zero unless every test passes and no test file was edited. A passing solution gets 1.0, plus up to 0.25 as the density of findings at precision 0.80 or above, in that language, falls toward zero. Growth over `baseline_source` costs up to 0.20, and added lines do not dilute the density, so padding cannot buy score. Without `baseline_source` there is no growth penalty.
+
+The penalty answers a measured failure. In `codehygiene`'s own benchmark, its Rust target grew 56%, from 312 to 488 lines, while its reward rose from 1.0237 to 1.2063.
+
 ## What it doesn't measure
 
 Per-rule precision is an intermediate metric. The task metric is whether reviewers accept a diff faster, or an agent stops shipping slop, and that needs a human study. `evals/task_metric.json` holds its place, and it is empty. In the closest published work, three times an intermediate metric pointed the opposite way to the task result, and one change that improved every intermediate metric made the model worse. So precision is a proxy here, and the gate should not be tuned against it alone.
@@ -173,19 +189,6 @@ There is no naming-length rule. Short is not the same as bad, and length is exac
 Duplicate blocks and type errors are out of reach. Both need cross-file state or a type checker, and a parser has neither.
 
 A fourth language means grammar entries and a handful of adapter branches, not a new rule set. Its column is worth nothing until it has its own held-out sample.
-
-## Reward shaping
-
-For RL loops, where hygiene is a term in the reward:
-
-```python
-nits.reward(source, lang="ts", tests_passed=pass_rate, baseline_source=before)
-# 0.0 – 1.25
-```
-
-The reward is zero unless every test passes and no test file was edited. A passing solution gets 1.0, plus up to 0.25 as the density of findings at precision 0.80 or above, in that language, falls toward zero. Growth over `baseline_source` costs up to 0.20, and added lines do not dilute the density, so padding cannot buy score. Without `baseline_source` there is no growth penalty.
-
-The penalty answers a measured failure. In `codehygiene`'s own benchmark, its Rust target grew 56%, from 312 to 488 lines, while its reward rose from 1.0237 to 1.2063.
 
 ## Development
 
