@@ -30,7 +30,7 @@ SKIP_DIRS = {
     ".venv", "venv", "env", ".nox", ".tox", "site-packages", "__pypackages__",
     ".eggs", ".next", ".turbo", "coverage", ".mypy_cache", ".pytest_cache",
     ".ruff_cache", ".hypothesis", "fixtures", "__fixtures__", "testdata", "third_party", "3rdparty", "external",
-    ".claude/worktrees", "worktrees",
+    ".claude/worktrees", "worktrees", ".worktrees",
 }
 
 C_DIM, C_RED, C_YEL, C_GRE, C_BOLD, C_OFF = (

@@ -39,4 +39,6 @@ def test_generated_files_are_not_scored(tmp_path: Path):
     (tmp_path / "app.ts").write_text("export const c = 1\n")
     (tmp_path / "__fixtures__").mkdir()
     (tmp_path / "__fixtures__" / "input.ts").write_text("// @ts-nocheck\nexport const d = 1\n")
+    (tmp_path / ".worktrees" / "feature").mkdir(parents=True)
+    (tmp_path / ".worktrees" / "feature" / "app.ts").write_text("export const e = 1\n")
     assert [p.name for p in _iter_files(tmp_path)] == ["app.ts"]
